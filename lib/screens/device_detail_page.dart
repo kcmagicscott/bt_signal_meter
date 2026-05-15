@@ -18,6 +18,7 @@ import '../utils/beacon_parsers.dart';
 import '../utils/bt_helpers.dart';
 import '../utils/device_guess.dart';
 import '../widgets/compass_dial.dart';
+import '../widgets/hot_cold_indicator.dart';
 import '../widgets/rssi_chart.dart';
 import '../widgets/signal_gauge.dart';
 import '../widgets/sparkline.dart';
@@ -544,6 +545,10 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             active: _findItMode,
             onPressed: _toggleFindIt,
           ),
+          if (_findItMode && !isOffline) ...[
+            const SizedBox(height: 12),
+            HotColdIndicator(deviceRecord: rec),
+          ],
           const SizedBox(height: 12),
           _DirectionRow(
             fix: DeviceMemory.instance.directionFor(rec.id.str),

@@ -102,18 +102,27 @@ class DeviceRecord {
   /// Compares the average of the older half of recent samples to the newer half
   /// within roughly the last [window] seconds.
   int trend({Duration window = const Duration(seconds: 8)}) {
+    final d = trendDeltaDb(window: window);
+    if (d > 2) return 1;
+    if (d < -2) return -1;
+    return 0;
+  }
+
+  /// Continuous dB delta over [window]: positive = signal strengthening
+  /// (warmer), negative = weakening (colder). Returns 0 when there isn't
+  /// enough history to split into older/newer halves.
+  double trendDeltaDb({Duration window = const Duration(seconds: 8)}) {
     if (samples.length < 6) return 0;
     final cutoff = DateTime.now().subtract(window);
     final recent = samples.where((s) => s.time.isAfter(cutoff)).toList();
     if (recent.length < 6) return 0;
     final mid = recent.length ~/ 2;
-    final older = recent.take(mid).map((s) => s.rssi).reduce((a, b) => a + b) / mid;
-    final newer = recent.skip(mid).map((s) => s.rssi).reduce((a, b) => a + b) /
-        (recent.length - mid);
-    final delta = newer - older;
-    if (delta > 2) return 1;
-    if (delta < -2) return -1;
-    return 0;
+    final older =
+        recent.take(mid).map((s) => s.rssi).reduce((a, b) => a + b) / mid;
+    final newer =
+        recent.skip(mid).map((s) => s.rssi).reduce((a, b) => a + b) /
+            (recent.length - mid);
+    return newer - older;
   }
 
   /// Parsed iBeacon data if the advertisement matches the iBeacon prefix.
