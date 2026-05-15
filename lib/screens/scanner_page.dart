@@ -750,11 +750,15 @@ class _DeviceListTile extends StatelessWidget {
               spacing: 6,
               runSpacing: 4,
               children: [
-                if (isPaired) const _Chip(text: 'Paired', accent: true),
+                if (isPaired)
+                  const _Chip(
+                      text: 'Paired',
+                      accent: true,
+                      icon: Icons.bluetooth_connected),
                 if (guess != null)
-                  _Chip(text: guess.label)
+                  _Chip(text: guess.label, icon: guess.icon)
                 else if (manufacturer != null)
-                  _Chip(text: manufacturer),
+                  _Chip(text: manufacturer, icon: Icons.devices_other),
                 if (!isOffline) _Chip(text: '~${formatDistance(dist)}'),
                 _Chip(text: '${record.samples.length} samples'),
                 if (isOffline)
@@ -874,13 +878,15 @@ class _NewPulseBadgeState extends State<_NewPulseBadge>
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.text, this.accent = false});
+  const _Chip({required this.text, this.accent = false, this.icon});
   final String text;
   final bool accent;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final fg = accent ? theme.colorScheme.onPrimaryContainer : null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -889,12 +895,21 @@ class _Chip extends StatelessWidget {
             : theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        text,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: accent ? theme.colorScheme.onPrimaryContainer : null,
-          fontWeight: accent ? FontWeight.w600 : null,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: fg ?? theme.colorScheme.outline),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: fg,
+              fontWeight: accent ? FontWeight.w600 : null,
+            ),
+          ),
+        ],
       ),
     );
   }
