@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/device_record.dart';
 import 'services/app_settings.dart';
@@ -11,6 +12,10 @@ import 'services/device_memory.dart';
 import 'services/new_device_monitor.dart';
 
 enum SortMode { signalDesc, signalAsc, nameAsc, lastSeenDesc }
+
+const _kFavoritesOnly = 'scanner.favorites_only';
+const _kHideUnnamed = 'scanner.hide_unnamed';
+const _kSortMode = 'scanner.sort_mode';
 
 class ScannerState extends ChangeNotifier {
   ScannerState._() {
@@ -114,6 +119,36 @@ class ScannerState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Loads persisted UI filter state. Safe to call multiple times.
+  Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _favoritesOnly = prefs.getBool(_kFavoritesOnly) ?? false;
+      _hideUnnamed = prefs.getBool(_kHideUnnamed) ?? false;
+      final mode = prefs.getInt(_kSortMode);
+      if (mode != null && mode >= 0 && mode < SortMode.values.length) {
+        _sortMode = SortMode.values[mode];
+      }
+      notifyListeners();
+    } catch (_) {
+      // Plugin unavailable (e.g. unit test); ignore.
+    }
+  }
+
+  Future<void> _persistBool(String key, bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, value);
+    } catch (_) {}
+  }
+
+  Future<void> _persistInt(String key, int value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(key, value);
+    } catch (_) {}
+  }
+
   Map<DeviceIdentifier, DeviceRecord> get allDevices =>
       Map.unmodifiable(_devices);
 
@@ -196,16 +231,19 @@ class ScannerState extends ChangeNotifier {
     _sortMode = m;
     _invalidateSort();
     notifyListeners();
+    _persistInt(_kSortMode, m.index);
   }
 
   void toggleHideUnnamed() {
     _hideUnnamed = !_hideUnnamed;
     notifyListeners();
+    _persistBool(_kHideUnnamed, _hideUnnamed);
   }
 
   void toggleFavoritesOnly() {
     _favoritesOnly = !_favoritesOnly;
     notifyListeners();
+    _persistBool(_kFavoritesOnly, _favoritesOnly);
   }
 
   void clearAll() {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'scanner_state.dart';
 import 'screens/scanner_page.dart';
 import 'services/app_settings.dart';
 import 'services/bonded_device_registry.dart';
@@ -14,6 +15,7 @@ Future<void> main() async {
     AppSettings.instance.load(),
     NewDeviceMonitor.instance.load(),
     WatchMode.instance.load(),
+    ScannerState.instance.load(),
   ]);
   BondedDeviceRegistry.instance.refresh();
   runApp(const BtSignalApp());

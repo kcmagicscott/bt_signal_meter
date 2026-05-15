@@ -696,11 +696,19 @@ class _DeviceListTile extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         onLongPress: onLongPress,
-        leading: isFavorite
-            ? Icon(Icons.star, color: Colors.amber.shade700, size: 20)
-            : (isNew
-                ? _NewPulseBadge(age: newAge)
-                : null),
+        leading: IconButton(
+          tooltip: isFavorite ? 'Unstar' : 'Star',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          onPressed: () => mem.toggleFavorite(record.id.str),
+          icon: Icon(
+            isFavorite ? Icons.star : Icons.star_border,
+            color: isFavorite
+                ? Colors.amber.shade700
+                : theme.colorScheme.outline,
+            size: 22,
+          ),
+        ),
         title: Row(
           children: [
             Flexible(
@@ -724,6 +732,10 @@ class _DeviceListTile extends StatelessWidget {
                 style: theme.textTheme.bodySmall,
                 overflow: TextOverflow.ellipsis,
               ),
+            ],
+            if (isNew) ...[
+              const SizedBox(width: 6),
+              _NewPulseBadge(age: newAge),
             ],
           ],
         ),
