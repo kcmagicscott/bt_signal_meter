@@ -275,6 +275,8 @@ class _ScannerPageState extends State<ScannerPage> {
             onChanged: state.setSearchQuery,
             hideUnnamed: state.hideUnnamed,
             onToggleUnnamed: state.toggleHideUnnamed,
+            favoritesOnly: state.favoritesOnly,
+            onToggleFavorites: state.toggleFavoritesOnly,
           ),
           _ManufacturerFilterStrip(
             present: state.manufacturersPresent,
@@ -305,7 +307,10 @@ class _ScannerPageState extends State<ScannerPage> {
           ),
           Expanded(
             child: devices.isEmpty
-                ? _EmptyState(scanning: state.isScanning)
+                ? _EmptyState(
+                    scanning: state.isScanning,
+                    favoritesOnly: state.favoritesOnly,
+                  )
                 : RefreshIndicator(
                     onRefresh: () async {
                       state.removeStale();
@@ -513,12 +518,16 @@ class _SearchBar extends StatelessWidget {
     required this.onChanged,
     required this.hideUnnamed,
     required this.onToggleUnnamed,
+    required this.favoritesOnly,
+    required this.onToggleFavorites,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final bool hideUnnamed;
   final VoidCallback onToggleUnnamed;
+  final bool favoritesOnly;
+  final VoidCallback onToggleFavorites;
 
   @override
   Widget build(BuildContext context) {
@@ -550,7 +559,17 @@ class _SearchBar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: favoritesOnly
+                ? 'Show all devices'
+                : 'Show favorites only',
+            onPressed: onToggleFavorites,
+            icon: Icon(
+              favoritesOnly ? Icons.star : Icons.star_border,
+            ),
+            color: favoritesOnly ? Colors.amber.shade700 : null,
+          ),
           IconButton(
             tooltip: hideUnnamed
                 ? 'Show unnamed devices'
@@ -870,33 +889,45 @@ class _Chip extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.scanning});
+  const _EmptyState({required this.scanning, this.favoritesOnly = false});
   final bool scanning;
+  final bool favoritesOnly;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final IconData icon;
+    final String title;
+    final String body;
+    if (favoritesOnly) {
+      icon = Icons.star_border;
+      title = 'No favorites in range';
+      body =
+          'Tap the star icon again to show all devices, '
+          'or open a device and star it to add it here.';
+    } else if (scanning) {
+      icon = Icons.bluetooth_searching;
+      title = 'Listening…';
+      body = 'Nearby Bluetooth devices will appear here as they advertise.';
+    } else {
+      icon = Icons.bluetooth_outlined;
+      title = 'Tap Scan to start';
+      body =
+          'This app finds Bluetooth Low Energy devices around you '
+          'and tracks their signal strength.';
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              scanning ? Icons.bluetooth_searching : Icons.bluetooth_outlined,
-              size: 64,
-              color: theme.colorScheme.outline,
-            ),
+            Icon(icon, size: 64, color: theme.colorScheme.outline),
             const SizedBox(height: 16),
-            Text(
-              scanning ? 'Listening…' : 'Tap Scan to start',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text(title, style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              scanning
-                  ? 'Nearby Bluetooth devices will appear here as they advertise.'
-                  : 'This app finds Bluetooth Low Energy devices around you and tracks their signal strength.',
+              body,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

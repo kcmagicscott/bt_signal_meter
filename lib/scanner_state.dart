@@ -64,6 +64,7 @@ class ScannerState extends ChangeNotifier {
   String _searchQuery = '';
   SortMode _sortMode = SortMode.signalDesc;
   bool _hideUnnamed = false;
+  bool _favoritesOnly = false;
   int? _manufacturerFilter; // null = no filter; -1 = "unknown" bucket
 
   /// Set of distinct manufacturer IDs seen in current results.
@@ -103,6 +104,7 @@ class ScannerState extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   SortMode get sortMode => _sortMode;
   bool get hideUnnamed => _hideUnnamed;
+  bool get favoritesOnly => _favoritesOnly;
   BluetoothAdapterState get adapterState => _adapterState;
   bool get isAdapterOn => _adapterState == BluetoothAdapterState.on;
 
@@ -121,6 +123,7 @@ class ScannerState extends ChangeNotifier {
     final mem = DeviceMemory.instance;
     final q = _searchQuery.trim().toLowerCase();
     final filtered = _devices.values.where((d) {
+      if (_favoritesOnly && !mem.isFavorite(d.id.str)) return false;
       if (_hideUnnamed && (d.localName == null || d.localName!.isEmpty)) {
         return false;
       }
@@ -197,6 +200,11 @@ class ScannerState extends ChangeNotifier {
 
   void toggleHideUnnamed() {
     _hideUnnamed = !_hideUnnamed;
+    notifyListeners();
+  }
+
+  void toggleFavoritesOnly() {
+    _favoritesOnly = !_favoritesOnly;
     notifyListeners();
   }
 
