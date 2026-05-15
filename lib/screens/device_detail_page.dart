@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,9 +15,11 @@ import '../scanner_state.dart';
 import '../services/app_settings.dart';
 import '../services/bonded_device_registry.dart';
 import '../services/device_memory.dart';
+import '../services/gatt_identifier.dart';
 import '../utils/beacon_parsers.dart';
 import '../utils/bt_helpers.dart';
 import '../utils/device_guess.dart';
+import '../utils/sensor_parsers.dart';
 import '../widgets/compass_dial.dart';
 import '../widgets/hot_cold_indicator.dart';
 import '../widgets/rssi_chart.dart';
@@ -294,6 +297,33 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     }
   }
 
+  Future<void> _identifyViaGatt(DeviceRecord rec) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Connecting to read manufacturer / model…'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+    setState(() {});
+    final result = await GattIdentifier.instance.lookup(rec.id);
+    if (!mounted) return;
+    messenger.hideCurrentSnackBar();
+    if (result == null || result.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Could not read identity — device may not expose the standard service.'),
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Identified: ${result.headline}')),
+      );
+    }
+    setState(() {});
+  }
+
   Future<void> _exportCsv(DeviceRecord rec) async {
     try {
       final dir = await getTemporaryDirectory();
@@ -384,6 +414,9 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
               switch (v) {
+                case 'identify':
+                  _identifyViaGatt(rec);
+                  break;
                 case 'gatt':
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -409,6 +442,16 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'identify',
+                enabled: !GattIdentifier.instance.isPending(rec.id.str),
+                child: const ListTile(
+                  leading: Icon(Icons.fingerprint),
+                  title: Text('Identify via GATT'),
+                  subtitle: Text('Read manufacturer + model from the device'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
               const PopupMenuItem(
                 value: 'gatt',
                 child: ListTile(
@@ -513,6 +556,10 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                 style: theme.textTheme.bodySmall,
               ),
             ),
+          if (GattIdentifier.instance.cached(rec.id.str) != null)
+            _IdentityCard(identity: GattIdentifier.instance.cached(rec.id.str)!),
+          if (parseSensorData(rec) != null)
+            _SensorCard(reading: parseSensorData(rec)!),
           Center(child: SignalGauge(rssi: smoothedRssi, isOffline: isOffline)),
           const SizedBox(height: 12),
           Padding(
@@ -717,79 +764,183 @@ class _DirectionRow extends StatelessWidget {
     final theme = Theme.of(context);
     final f = fix;
     if (f == null) {
-      return Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onSweep,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(Icons.explore_outlined,
-                    color: theme.colorScheme.onSecondaryContainer),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Sweep for direction',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: theme.colorScheme.onSecondaryContainer,
-                          )),
-                      Text(
-                        'Rotate the phone a full circle — we\'ll estimate which way the device is.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSecondaryContainer
-                              .withValues(alpha: 0.85),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right,
-                    color: theme.colorScheme.onSecondaryContainer),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _SweepStartButton(onPressed: onSweep);
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
         children: [
-          CompassDial(fix: f, size: 110),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Estimated direction',
-                    style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                Text(
-                  'Heading shown is magnetic-north relative. Re-sweep after moving.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Sweep again'),
-                  onPressed: onSweep,
-                ),
-              ],
-            ),
+          Text('Estimated direction', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 12),
+          CompassDial(fix: f, size: 150),
+          const SizedBox(height: 14),
+          FilledButton.tonalIcon(
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Sweep again'),
+            onPressed: onSweep,
           ),
         ],
       ),
     );
   }
+}
+
+class _SweepStartButton extends StatefulWidget {
+  const _SweepStartButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  State<_SweepStartButton> createState() => _SweepStartButtonState();
+}
+
+class _SweepStartButtonState extends State<_SweepStartButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.tertiaryContainer,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: widget.onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: AnimatedBuilder(
+                  animation: _ctrl,
+                  builder: (_, child) {
+                    return CustomPaint(
+                      painter: _StartCompassPainter(
+                        angleRad: _ctrl.value * 2 * math.pi,
+                        primary: theme.colorScheme.onTertiaryContainer,
+                        outline: theme.colorScheme.onTertiaryContainer
+                            .withValues(alpha: 0.5),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Find the direction',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onTertiaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Spin in a circle — we\'ll point you at it.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onTertiaryContainer
+                            .withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right,
+                  color: theme.colorScheme.onTertiaryContainer),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StartCompassPainter extends CustomPainter {
+  _StartCompassPainter({
+    required this.angleRad,
+    required this.primary,
+    required this.outline,
+  });
+  final double angleRad;
+  final Color primary;
+  final Color outline;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = math.min(size.width, size.height) / 2 - 1;
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..color = outline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+    for (var i = 0; i < 4; i++) {
+      final a = i * (math.pi / 2) - math.pi / 2;
+      canvas.drawLine(
+        center + Offset(math.cos(a) * r, math.sin(a) * r),
+        center + Offset(math.cos(a) * (r - 3), math.sin(a) * (r - 3)),
+        Paint()
+          ..color = outline
+          ..strokeWidth = 1.4,
+      );
+    }
+    final tipA = angleRad - math.pi / 2;
+    final tip = center +
+        Offset(math.cos(tipA) * r * 0.75, math.sin(tipA) * r * 0.75);
+    final back = math.pi - 0.45;
+    final left = center +
+        Offset(math.cos(tipA + back) * r * 0.28,
+            math.sin(tipA + back) * r * 0.28);
+    final right = center +
+        Offset(math.cos(tipA - back) * r * 0.28,
+            math.sin(tipA - back) * r * 0.28);
+    canvas.drawPath(
+      Path()
+        ..moveTo(tip.dx, tip.dy)
+        ..lineTo(left.dx, left.dy)
+        ..lineTo(right.dx, right.dy)
+        ..close(),
+      Paint()..color = primary,
+    );
+    canvas.drawCircle(center, 2.4, Paint()..color = primary);
+  }
+
+  @override
+  bool shouldRepaint(_StartCompassPainter old) =>
+      old.angleRad != angleRad ||
+      old.primary != primary ||
+      old.outline != outline;
 }
 
 class _StatGrid extends StatelessWidget {
@@ -867,6 +1018,138 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _IdentityCard extends StatelessWidget {
+  const _IdentityCard({required this.identity});
+  final GattIdentity identity;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: theme.colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.fingerprint,
+                    size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
+                Text('Device identity',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ],
+            ),
+            const SizedBox(height: 6),
+            if (identity.manufacturer != null)
+              _kv(theme, 'Manufacturer', identity.manufacturer!),
+            if (identity.modelNumber != null)
+              _kv(theme, 'Model', identity.modelNumber!),
+            if (identity.firmwareRevision != null)
+              _kv(theme, 'Firmware', identity.firmwareRevision!),
+            if (identity.hardwareRevision != null)
+              _kv(theme, 'Hardware', identity.hardwareRevision!),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(ThemeData theme, String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(k, style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SensorCard extends StatelessWidget {
+  const _SensorCard({required this.reading});
+  final SensorReading reading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: theme.colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.sensors,
+                    size: 18, color: theme.colorScheme.tertiary),
+                const SizedBox(width: 6),
+                Text(
+                  'Live sensor data${reading.source != null ? ' · ${reading.source}' : ''}',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.tertiary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              children: [
+                if (reading.temperatureC != null)
+                  _stat(theme, Icons.thermostat,
+                      '${reading.temperatureCStr()}  /  ${reading.temperatureF()}'),
+                if (reading.humidityPercent != null)
+                  _stat(theme, Icons.water_drop_outlined,
+                      reading.humidityStr()),
+                if (reading.pressureHpa != null)
+                  _stat(theme, Icons.speed,
+                      '${reading.pressureHpa!.toStringAsFixed(0)} hPa'),
+                if (reading.batteryPercent != null)
+                  _stat(theme, Icons.battery_full,
+                      '${reading.batteryPercent}%'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stat(ThemeData theme, IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: theme.colorScheme.outline),
+        const SizedBox(width: 4),
+        Text(text, style: theme.textTheme.bodyMedium),
+      ],
     );
   }
 }

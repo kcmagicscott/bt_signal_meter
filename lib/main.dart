@@ -5,6 +5,7 @@ import 'screens/scanner_page.dart';
 import 'services/app_settings.dart';
 import 'services/bonded_device_registry.dart';
 import 'services/device_memory.dart';
+import 'services/gatt_identifier.dart';
 import 'services/new_device_monitor.dart';
 import 'services/watch_mode.dart';
 
@@ -16,6 +17,7 @@ Future<void> main() async {
     NewDeviceMonitor.instance.load(),
     WatchMode.instance.load(),
     ScannerState.instance.load(),
+    GattIdentifier.instance.load(),
   ]);
   BondedDeviceRegistry.instance.refresh();
   runApp(const BtSignalApp());
