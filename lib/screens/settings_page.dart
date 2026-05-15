@@ -76,6 +76,16 @@ class _SettingsPageState extends State<SettingsPage> {
             value: s.keepScreenOn,
             onChanged: s.setKeepScreenOn,
           ),
+          SwitchListTile(
+            title: const Text('Distance in feet'),
+            subtitle: Text(
+              s.imperialDistance
+                  ? 'Showing distances in feet/inches'
+                  : 'Showing distances in metres/centimetres',
+            ),
+            value: s.imperialDistance,
+            onChanged: s.setImperialDistance,
+          ),
           ListTile(
             title: const Text('Reorder interval'),
             subtitle: Text(

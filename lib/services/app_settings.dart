@@ -13,6 +13,7 @@ class AppSettings extends ChangeNotifier {
   static const _kKeepScreenOn = 'settings.keep_screen_on';
   static const _kReorderInterval = 'settings.reorder_interval_s';
   static const _kMonitoringSensitivity = 'settings.monitoring_sensitivity';
+  static const _kImperialDistance = 'settings.imperial_distance';
 
   int _chartWindowSeconds = 60;
   int _staleAfterSeconds = 5;
@@ -20,6 +21,7 @@ class AppSettings extends ChangeNotifier {
   bool _keepScreenOn = false;
   int _reorderIntervalSeconds = 3;
   int _monitoringSensitivity = 3;
+  bool _imperialDistance = false;
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
@@ -30,6 +32,7 @@ class AppSettings extends ChangeNotifier {
   bool get keepScreenOn => _keepScreenOn;
   int get reorderIntervalSeconds => _reorderIntervalSeconds;
   int get monitoringSensitivity => _monitoringSensitivity;
+  bool get imperialDistance => _imperialDistance;
 
   /// Length of silence after which we consider a device offline (vs. merely stale).
   Duration get offlineThreshold =>
@@ -44,8 +47,16 @@ class AppSettings extends ChangeNotifier {
     _keepScreenOn = prefs.getBool(_kKeepScreenOn) ?? false;
     _reorderIntervalSeconds = prefs.getInt(_kReorderInterval) ?? 3;
     _monitoringSensitivity = prefs.getInt(_kMonitoringSensitivity) ?? 3;
+    _imperialDistance = prefs.getBool(_kImperialDistance) ?? false;
     _loaded = true;
     notifyListeners();
+  }
+
+  Future<void> setImperialDistance(bool v) async {
+    _imperialDistance = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kImperialDistance, v);
   }
 
   Future<void> setChartWindowSeconds(int v) async {

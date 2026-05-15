@@ -115,8 +115,18 @@ Color colorForRssi(int rssi) {
   return Color.lerp(orange, green, (t - 0.5) * 2)!;
 }
 
-String formatDistance(double? meters) {
+/// Formats a distance estimate in either metric (m/cm) or imperial (ft/in).
+///
+/// Without [imperial], defaults to metric to stay compatible with existing
+/// callers that don't yet thread AppSettings through.
+String formatDistance(double? meters, {bool imperial = false}) {
   if (meters == null) return '—';
+  if (imperial) {
+    final feet = meters * 3.28084;
+    if (feet < 1) return '${(feet * 12).round()} in';
+    if (feet < 10) return '${feet.toStringAsFixed(1)} ft';
+    return '${feet.round()} ft';
+  }
   if (meters < 1) return '${(meters * 100).round()} cm';
   if (meters < 10) return '${meters.toStringAsFixed(1)} m';
   return '${meters.round()} m';

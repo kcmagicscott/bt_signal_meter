@@ -300,9 +300,22 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Future<void> _identifyViaGatt(DeviceRecord rec) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Connecting to read manufacturer / model…'),
-        duration: Duration(seconds: 3),
+      SnackBar(
+        content: Row(
+          children: const [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.white),
+            ),
+            SizedBox(width: 12),
+            Expanded(child: Text('Connecting and reading identity…')),
+          ],
+        ),
+        // Lookups can take ~15s on slow devices; keep the indicator up until
+        // we dismiss it manually so the user sees that work is still pending.
+        duration: const Duration(seconds: 60),
       ),
     );
     setState(() {});
@@ -604,7 +617,8 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
           const SizedBox(height: 16),
           _StatGrid(
             stats: [
-              _Stat('Distance (est.)', formatDistance(dist)),
+              _Stat('Distance (est.)',
+                  formatDistance(dist, imperial: settings.imperialDistance)),
               _Stat('Avg RSSI',
                   rec.avgRssi == null ? '—' : '${rec.avgRssi!.toStringAsFixed(1)} dBm'),
               _Stat('Min',

@@ -1,6 +1,7 @@
 import 'package:animated_list_plus/animated_list_plus.dart';
 import 'package:animated_list_plus/transitions.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/device_record.dart';
@@ -8,6 +9,7 @@ import '../scanner_state.dart';
 import '../services/app_settings.dart';
 import '../services/bonded_device_registry.dart';
 import '../services/device_memory.dart';
+import '../services/gatt_identifier.dart';
 import '../services/new_device_monitor.dart';
 import '../services/session_recorder.dart';
 import '../utils/bt_helpers.dart';
@@ -81,29 +83,122 @@ class _ScannerPageState extends State<ScannerPage> {
     }
   }
 
-  Future<void> _confirmRemove(BuildContext context, DeviceRecord rec) async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _showDeviceActions(BuildContext context, DeviceRecord rec) async {
+    final mem = DeviceMemory.instance;
+    final isFav = mem.isFavorite(rec.id.str);
+    final messenger = ScaffoldMessenger.of(context);
+    final action = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove from list?'),
-        content: Text(
-          'Remove "${rec.name}" from the scan results? '
-          'It\'ll come back if it advertises again while scanning.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+      showDragHandle: true,
+      builder: (ctx) {
+        final displayName = mem.labelFor(rec.id.str) ?? rec.name;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  displayName,
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  isFav ? Icons.star : Icons.star_border,
+                  color: isFav ? Colors.amber.shade700 : null,
+                ),
+                title: Text(isFav ? 'Unstar' : 'Star'),
+                onTap: () => Navigator.of(ctx).pop('toggleFav'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.open_in_new),
+                title: const Text('Open details'),
+                onTap: () => Navigator.of(ctx).pop('open'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.fingerprint),
+                title: const Text('Identify via GATT'),
+                subtitle: const Text('Read manufacturer + model from device'),
+                onTap: () => Navigator.of(ctx).pop('identify'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline,
+                    color: Colors.redAccent),
+                title: const Text(
+                  'Remove from list',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+                onTap: () => Navigator.of(ctx).pop('remove'),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+        );
+      },
     );
-    if (confirmed == true) {
-      ScannerState.instance.removeDevice(rec.id);
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case 'toggleFav':
+        await mem.toggleFavorite(rec.id.str);
+        break;
+      case 'open':
+        if (context.mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DeviceDetailPage(deviceId: rec.id),
+            ),
+          );
+        }
+        break;
+      case 'identify':
+        messenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                ),
+                SizedBox(width: 12),
+                Expanded(child: Text('Connecting and reading identity…')),
+              ],
+            ),
+            duration: const Duration(seconds: 30),
+          ),
+        );
+        final result = await GattIdentifier.instance.lookup(rec.id);
+        if (!context.mounted) return;
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              result == null || result.isEmpty
+                  ? 'Could not read identity — device may not expose '
+                      'the standard Device Information service.'
+                  : 'Identified: ${result.headline}',
+            ),
+          ),
+        );
+        break;
+      case 'remove':
+        ScannerState.instance.removeDevice(rec.id);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Removed ${rec.name}'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () {
+                // The device will reappear on its next advertisement. No
+                // explicit undo needed — show feedback only.
+              },
+            ),
+          ),
+        );
+        break;
     }
   }
 
@@ -287,17 +382,10 @@ class _ScannerPageState extends State<ScannerPage> {
                 .length,
           ),
           if (state.statusMessage != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              color: Colors.amber.shade100,
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(state.statusMessage!)),
-                ],
-              ),
+            _StatusBanner(
+              message: state.statusMessage!,
+              showSettingsAction:
+                  state.statusMessage!.toLowerCase().contains('permission'),
             ),
           _SummaryBar(
             total: state.allDevices.length,
@@ -334,7 +422,8 @@ class _ScannerPageState extends State<ScannerPage> {
                                     DeviceDetailPage(deviceId: item.id),
                               ),
                             ),
-                            onLongPress: () => _confirmRemove(context, item),
+                            onLongPress: () =>
+                                _showDeviceActions(context, item),
                           ),
                         );
                       },
@@ -349,7 +438,8 @@ class _ScannerPageState extends State<ScannerPage> {
                                     DeviceDetailPage(deviceId: item.id),
                               ),
                             ),
-                            onLongPress: () => _confirmRemove(context, item),
+                            onLongPress: () =>
+                                _showDeviceActions(context, item),
                           ),
                         );
                       },
@@ -474,6 +564,40 @@ class _ManufacturerFilterStrip extends StatelessWidget {
             onSelected: (_) => onSelect(selected == id ? null : id),
           );
         },
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({
+    required this.message,
+    required this.showSettingsAction,
+  });
+
+  final String message;
+  final bool showSettingsAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.amber.shade100,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+            if (showSettingsAction)
+              TextButton(
+                onPressed: () async {
+                  await openAppSettings();
+                },
+                child: const Text('Open settings'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -759,7 +883,11 @@ class _DeviceListTile extends StatelessWidget {
                   _Chip(text: guess.label, icon: guess.icon)
                 else if (manufacturer != null)
                   _Chip(text: manufacturer, icon: Icons.devices_other),
-                if (!isOffline) _Chip(text: '~${formatDistance(dist)}'),
+                if (!isOffline)
+                  _Chip(
+                    text:
+                        '~${formatDistance(dist, imperial: settings.imperialDistance)}',
+                  ),
                 _Chip(text: '${record.samples.length} samples'),
                 if (isOffline)
                   _Chip(text: 'offline ${ageSeconds}s')
