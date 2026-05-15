@@ -2,30 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Common Bluetooth SIG company identifiers — first 2 bytes of manufacturer data.
-/// Full list: https://www.bluetooth.com/specifications/assigned-numbers/company-identifiers/
-const Map<int, String> kManufacturerNames = {
-  0x0001: 'Ericsson',
-  0x0006: 'Microsoft',
-  0x000D: 'Texas Instruments',
-  0x000F: 'Broadcom',
-  0x0059: 'Nordic Semiconductor',
-  0x0075: 'Samsung',
-  0x0087: 'Garmin',
-  0x00E0: 'Google',
-  0x004C: 'Apple',
-  0x010F: 'Plantronics',
-  0x0131: 'Cypress',
-  0x0157: 'Anhui Huami (Amazfit/Mi)',
-  0x0181: 'Polar Electro',
-  0x019A: 'NXP',
-  0x0220: 'Logitech',
-  0x0245: 'Tile',
-  0x0399: 'Nintendo',
-  0x05A7: 'Sonos',
-};
-
-String? manufacturerNameFor(int companyId) => kManufacturerNames[companyId];
+export 'manufacturer_ids.dart' show kManufacturerNames, manufacturerNameFor;
 
 /// Common BLE assigned service UUIDs (16-bit) expanded to 128-bit form.
 const Map<String, String> kWellKnownServices = {

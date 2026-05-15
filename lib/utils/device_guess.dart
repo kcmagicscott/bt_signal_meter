@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../models/device_record.dart';
+import 'fast_pair.dart';
+import 'local_name_patterns.dart';
+import 'manufacturer_ids.dart';
 
 class DeviceGuess {
   const DeviceGuess(this.label, {this.confidence = Confidence.likely, this.icon});
@@ -19,6 +22,10 @@ enum Confidence { certain, likely, possible }
 /// We err on the side of saying nothing rather than guessing wildly — many
 /// BLE devices broadcast minimal info.
 DeviceGuess? guessDeviceType(DeviceRecord r) {
+  // Fast Pair gives us a literal product model — strongest possible signal.
+  final fp = guessFromFastPair(r.serviceData);
+  if (fp != null && fp.confidence == Confidence.certain) return fp;
+
   if (r.iBeacon != null) {
     return const DeviceGuess('iBeacon',
         confidence: Confidence.certain, icon: Icons.wifi_tethering);
@@ -26,6 +33,13 @@ DeviceGuess? guessDeviceType(DeviceRecord r) {
   if (r.eddystone != null) {
     return const DeviceGuess('Eddystone beacon',
         confidence: Confidence.certain, icon: Icons.wifi_tethering);
+  }
+
+  // Local-name pattern catalog catches branded products that don't broadcast
+  // Continuity / Fast Pair (e.g. older Sony, Bose, Garmin, MX peripherals).
+  final localName = guessFromLocalName(r.localName ?? r.name);
+  if (localName != null && localName.confidence == Confidence.certain) {
+    return localName;
   }
 
   if (r.manufacturerId == 0x004C && r.rawManufacturerBytes.isNotEmpty) {
@@ -58,6 +72,12 @@ DeviceGuess? guessDeviceType(DeviceRecord r) {
 
   final services = _guessFromServices(r.serviceUuids);
   if (services != null) return services;
+
+  // Lower-confidence local-name pattern (Logitech, generic JBL, etc).
+  if (localName != null) return localName;
+
+  // Less-precise Fast Pair (unknown model ID but Fast Pair-capable).
+  if (fp != null) return fp;
 
   // Fallback: a known manufacturer ID with no payload subtype we recognise.
   if (r.manufacturerId != null) {
@@ -164,32 +184,4 @@ DeviceGuess? _guessFromServices(List<Guid> uuids) {
   return null;
 }
 
-String? _vendorName(int id) {
-  switch (id) {
-    case 0x004C:
-      return 'Apple';
-    case 0x0006:
-      return 'Microsoft';
-    case 0x0075:
-      return 'Samsung';
-    case 0x00E0:
-    case 0x008C:
-      return 'Google';
-    case 0x0245:
-      return 'Tile';
-    case 0x0157:
-      return 'Xiaomi/Amazfit';
-    case 0x0399:
-      return 'Nintendo';
-    case 0x05A7:
-      return 'Sonos';
-    case 0x0220:
-      return 'Logitech';
-    case 0x0087:
-      return 'Garmin';
-    case 0x0181:
-      return 'Polar';
-    default:
-      return null;
-  }
-}
+String? _vendorName(int id) => kManufacturerNames[id];
