@@ -39,8 +39,19 @@ class DeviceDetailPage extends StatefulWidget {
 
 class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Timer? _hapticTimer;
+  Timer? _lostSignalTimer;
   bool _findItMode = false;
   bool _audioOn = false;
+
+  /// Best (least-negative) RSSI seen since find-it was engaged. Resets each
+  /// time find-it toggles on. Lets us tell the user "you're 8 dB weaker than
+  /// peak — turn around" while hunting.
+  int? _findItPeakRssi;
+  DateTime? _findItPeakTime;
+
+  /// True once we've detected the device dropping offline while find-it was
+  /// active. Triggers the visual + haptic "lost signal!" alert.
+  bool _lostSignal = false;
   late final Listenable _appState = Listenable.merge([
     ScannerState.instance,
     DeviceMemory.instance,
@@ -56,14 +67,48 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
 
   void _onChange() {
     if (!mounted) return;
-    if (_findItMode) _scheduleHapticPulse();
+    if (_findItMode) {
+      _updatePeakAndOfflineCheck();
+      _scheduleHapticPulse();
+    }
     setState(() {});
+  }
+
+  /// Tracks the best RSSI seen since find-it engaged, and triggers the
+  /// lost-signal alert if the device drops offline mid-hunt.
+  void _updatePeakAndOfflineCheck() {
+    final rec = ScannerState.instance.deviceFor(widget.deviceId);
+    if (rec == null) return;
+    final settings = AppSettings.instance;
+    final isOffline = rec.isOfflineFor(settings.offlineThreshold);
+    if (isOffline) {
+      if (!_lostSignal) {
+        _lostSignal = true;
+        // Burst of three medium haptics to grab attention.
+        HapticFeedback.heavyImpact();
+        Timer(const Duration(milliseconds: 250),
+            () => HapticFeedback.heavyImpact());
+        Timer(const Duration(milliseconds: 500),
+            () => HapticFeedback.heavyImpact());
+      }
+      return;
+    }
+    if (_lostSignal) {
+      // Signal recovered.
+      _lostSignal = false;
+    }
+    final r = rec.smoothedRssi(settings.smoothingWindow);
+    if (_findItPeakRssi == null || r > _findItPeakRssi!) {
+      _findItPeakRssi = r;
+      _findItPeakTime = DateTime.now();
+    }
   }
 
   @override
   void dispose() {
     _appState.removeListener(_onChange);
     _hapticTimer?.cancel();
+    _lostSignalTimer?.cancel();
     if (_findItMode) {
       WakelockPlus.disable().catchError((_) => false);
     }
@@ -105,14 +150,23 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   }
 
   Future<void> _toggleFindIt() async {
-    setState(() => _findItMode = !_findItMode);
+    setState(() {
+      _findItMode = !_findItMode;
+      // Reset session-local find-it state on every toggle (both on and off
+      // — toggling off then on starts a fresh hunt).
+      _findItPeakRssi = null;
+      _findItPeakTime = null;
+      _lostSignal = false;
+    });
     if (_findItMode) {
+      _updatePeakAndOfflineCheck();
       _scheduleHapticPulse();
       try {
         await WakelockPlus.enable();
       } catch (_) {}
     } else {
       _hapticTimer?.cancel();
+      _lostSignalTimer?.cancel();
       try {
         await WakelockPlus.disable();
       } catch (_) {}
@@ -605,9 +659,21 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             active: _findItMode,
             onPressed: _toggleFindIt,
           ),
-          if (_findItMode && !isOffline) ...[
+          if (_findItMode) ...[
             const SizedBox(height: 12),
-            HotColdIndicator(deviceRecord: rec),
+            _FindItPanel(
+              currentRssi: smoothedRssi,
+              peakRssi: _findItPeakRssi,
+              peakTime: _findItPeakTime,
+              distance: dist,
+              imperial: settings.imperialDistance,
+              isOffline: isOffline,
+              lostSignal: _lostSignal,
+            ),
+            if (!isOffline) ...[
+              const SizedBox(height: 12),
+              HotColdIndicator(deviceRecord: rec),
+            ],
           ],
           const SizedBox(height: 12),
           _DirectionRow(
@@ -762,6 +828,188 @@ class _FindItButton extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FindItPanel extends StatelessWidget {
+  const _FindItPanel({
+    required this.currentRssi,
+    required this.peakRssi,
+    required this.peakTime,
+    required this.distance,
+    required this.imperial,
+    required this.isOffline,
+    required this.lostSignal,
+  });
+
+  final int currentRssi;
+  final int? peakRssi;
+  final DateTime? peakTime;
+  final double? distance;
+  final bool imperial;
+  final bool isOffline;
+  final bool lostSignal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (lostSignal || isOffline) {
+      return Card(
+        color: theme.colorScheme.errorContainer,
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Icon(Icons.signal_wifi_bad,
+                  size: 48, color: theme.colorScheme.onErrorContainer),
+              const SizedBox(height: 8),
+              Text(
+                'Lost signal',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: theme.colorScheme.onErrorContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Move closer or back where signal was last strong.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+              ),
+              if (peakRssi != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Peak was $peakRssi dBm '
+                  '${peakTime != null ? formatDuration(DateTime.now().difference(peakTime!)) : ""} ago',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    final delta = peakRssi == null ? 0 : currentRssi - peakRssi!;
+    final atPeak = delta >= -1;
+    final near = delta >= -4;
+    final hint = atPeak
+        ? 'At peak — getting it'
+        : near
+            ? 'Close to peak — fine-tune your direction'
+            : 'You\'re ${delta.abs()} dB weaker than peak — try turning around';
+    final hintColor = atPeak
+        ? Colors.green.shade700
+        : near
+            ? Colors.orange.shade700
+            : theme.colorScheme.outline;
+
+    return Card(
+      color: theme.colorScheme.surfaceContainerHigh,
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Distance',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      Text(
+                        formatDistance(distance, imperial: imperial),
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: qualityFromRssi(currentRssi).color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Now',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    Text(
+                      '$currentRssi',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: qualityFromRssi(currentRssi).color,
+                      ),
+                    ),
+                    Text('dBm', style: theme.textTheme.bodySmall),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    peakRssi == null
+                        ? Icons.hourglass_empty
+                        : (atPeak
+                            ? Icons.gps_fixed
+                            : (near ? Icons.adjust : Icons.gps_not_fixed)),
+                    size: 18,
+                    color: hintColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          peakRssi == null
+                              ? 'Move around to find a peak…'
+                              : hint,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: hintColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (peakRssi != null && peakTime != null)
+                          Text(
+                            'Peak: $peakRssi dBm · '
+                            '${formatDuration(DateTime.now().difference(peakTime!))} ago',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
