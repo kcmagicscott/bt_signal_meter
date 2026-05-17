@@ -4,14 +4,17 @@ import 'package:flutter/material.dart';
 
 import '../models/direction_fix.dart';
 
-/// Static result display: a small compass dial with an arrow pointing toward
-/// the inferred device bearing, plus age + confidence below.
+/// Static result display: a compass dial with an arrow pointing toward the
+/// inferred device bearing, a colored confidence badge, and the bearing
+/// readout. Stacks vertically so it never wraps awkwardly.
 class CompassDial extends StatelessWidget {
   const CompassDial({
     super.key,
     required this.fix,
     this.deviceHeadingDeg,
-    this.size = 120,
+    this.size = 140,
+    this.showBadge = true,
+    this.showDetail = true,
   });
 
   final DirectionFix fix;
@@ -21,12 +24,15 @@ class CompassDial extends StatelessWidget {
   final double? deviceHeadingDeg;
 
   final double size;
+  final bool showBadge;
+  final bool showDetail;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final relativeBearing =
-        deviceHeadingDeg == null ? fix.bearingDeg : fix.bearingDeg - deviceHeadingDeg!;
+    final relativeBearing = deviceHeadingDeg == null
+        ? fix.bearingDeg
+        : fix.bearingDeg - deviceHeadingDeg!;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -42,17 +48,27 @@ class CompassDial extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Text(
           _bearingLabel(fix.bearingDeg),
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        Text(
-          _detailLabel(fix),
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
           ),
         ),
+        if (showBadge) ...[
+          const SizedBox(height: 6),
+          _ConfidenceBadge(confidence: fix.confidence),
+        ],
+        if (showDetail) ...[
+          const SizedBox(height: 6),
+          Text(
+            _detailLabel(fix),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ],
     );
   }
@@ -77,8 +93,43 @@ class CompassDial extends StatelessWidget {
             : age.inHours < 24
                 ? '${age.inHours} h ago'
                 : '${age.inDays} d ago';
-    final conf = (fix.confidence * 100).round();
-    return 'Estimate · $conf% confidence · ${fix.rangeDb} dB swing · $ageStr';
+    return '${fix.rangeDb} dB swing · ${fix.sampleCount} samples · $ageStr';
+  }
+}
+
+class _ConfidenceBadge extends StatelessWidget {
+  const _ConfidenceBadge({required this.confidence});
+  final double confidence;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = _labelAndColor(confidence);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.6), width: 1),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  static (String, Color) _labelAndColor(double c) {
+    if (c >= 0.7) {
+      return ('High confidence · ${(c * 100).round()}%', const Color(0xFF2E7D32));
+    }
+    if (c >= 0.4) {
+      return ('Rough estimate · ${(c * 100).round()}%', const Color(0xFFEF6C00));
+    }
+    return ('Low confidence · ${(c * 100).round()}% — sweep again', const Color(0xFFC62828));
   }
 }
 
@@ -130,7 +181,7 @@ class _DialPainter extends CustomPainter {
     );
     _paintLetter(canvas, 'N', center, r, -math.pi / 2, letterStyle);
 
-    // Confidence cone behind the arrow — wider when we're less sure.
+    // Confidence cone behind the arrow — wider when less confident.
     final coneHalfWidth = math.pi / 6 + (1 - confidence) * (math.pi / 3);
     final bearingRad = (bearingDeg * math.pi / 180) - math.pi / 2;
     final conePath = Path()
@@ -149,8 +200,8 @@ class _DialPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    final tip = center + Offset(math.cos(bearingRad) * r * 0.82,
-        math.sin(bearingRad) * r * 0.82);
+    final tip = center +
+        Offset(math.cos(bearingRad) * r * 0.82, math.sin(bearingRad) * r * 0.82);
     final back = math.pi - 0.45;
     final left = center +
         Offset(math.cos(bearingRad + back) * r * 0.35,
@@ -174,7 +225,8 @@ class _DialPainter extends CustomPainter {
       text: TextSpan(text: letter, style: style),
       textDirection: TextDirection.ltr,
     )..layout();
-    final at = center + Offset(math.cos(angle) * (r - 14), math.sin(angle) * (r - 14));
+    final at = center +
+        Offset(math.cos(angle) * (r - 14), math.sin(angle) * (r - 14));
     tp.paint(canvas, at - Offset(tp.width / 2, tp.height / 2));
   }
 
