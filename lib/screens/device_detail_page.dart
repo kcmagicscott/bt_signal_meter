@@ -14,18 +14,17 @@ import '../services/app_settings.dart';
 import '../services/bonded_device_registry.dart';
 import '../services/device_memory.dart';
 import '../services/gatt_identifier.dart';
-import '../utils/beacon_parsers.dart';
 import '../utils/bt_helpers.dart';
 import '../utils/device_display.dart';
 import '../utils/device_guess.dart';
 import '../utils/format_labels.dart';
 import '../utils/sensor_parsers.dart';
-import '../widgets/device_cards.dart';
 import '../widgets/baseline_card.dart';
+import '../widgets/device_cards.dart';
+import '../widgets/device_metadata_section.dart';
 import '../widgets/direction_panel.dart';
+import '../widgets/find_it_button.dart';
 import '../widgets/hot_cold_indicator.dart';
-import '../widgets/info_row.dart';
-import '../widgets/rssi_chart.dart';
 import '../widgets/signal_gauge.dart';
 import '../widgets/sparkline.dart';
 import '../widgets/stat_grid.dart';
@@ -510,8 +509,6 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             measuredPowerAt1m: calibration ?? rec.txPower ?? -59,
           );
     final age = Duration(seconds: d.ageSeconds);
-    final ibeacon = rec.iBeacon;
-    final eddystone = rec.eddystone;
     final guess = guessDeviceType(rec);
 
     return Scaffold(
@@ -735,7 +732,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             ),
           ),
           const SizedBox(height: 16),
-          _FindItButton(
+          FindItButton(
             active: _findItMode,
             onPressed: _toggleFindIt,
           ),
@@ -793,135 +790,11 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
               Stat('Stability', stabilityLabel(rec.rssiStdDev())),
             ],
           ),
-          if (ibeacon != null || eddystone != null) ...[
-            const SizedBox(height: 24),
-            Text('Beacon', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (ibeacon != null) ...[
-              InfoRow('Type', 'iBeacon'),
-              InfoRow('UUID', ibeacon.uuid),
-              InfoRow('Major', '${ibeacon.major}'),
-              InfoRow('Minor', '${ibeacon.minor}'),
-              InfoRow('Measured power', '${ibeacon.measuredPower} dBm @ 1 m'),
-            ],
-            if (eddystone != null) ...[
-              InfoRow('Type', eddystoneTypeLabel(eddystone.frameType)),
-              InfoRow('Payload', eddystone.payload),
-            ],
-          ],
-          const SizedBox(height: 24),
-          Text(
-            'Signal over time (last ${settings.chartWindowSeconds}s)',
-            style: theme.textTheme.titleMedium,
+          DeviceMetadataSection(
+            record: rec,
+            chartWindowSeconds: settings.chartWindowSeconds,
           ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 220,
-            child: RssiChart(
-              samples: rec.samples,
-              windowSeconds: settings.chartWindowSeconds,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text('Identity', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
-          InfoRow('Address', rec.id.str),
-          if (rec.localName != null && rec.localName!.isNotEmpty)
-            InfoRow('Advertised name', rec.localName!),
-          if (rec.manufacturerId != null)
-            InfoRow(
-              'Manufacturer',
-              '${manufacturerNameFor(rec.manufacturerId!) ?? "Unknown"} '
-                  '(0x${rec.manufacturerId!.toRadixString(16).padLeft(4, '0').toUpperCase()})',
-            ),
-          if (rec.rawManufacturerBytes.isNotEmpty)
-            InfoRow(
-              'Mfr data',
-              rec.rawManufacturerBytes
-                  .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                  .join(' '),
-            ),
-          InfoRow('First seen', formatTime(rec.firstSeen)),
-          InfoRow('Last seen', formatTime(rec.lastSeen)),
-          if (rec.serviceUuids.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text('Services advertised', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            ...rec.serviceUuids.map((u) {
-              final known = serviceNameFor(u.str);
-              return InfoRow(known ?? 'Service', u.str);
-            }),
-          ],
-          const SizedBox(height: 32),
         ],
-      ),
-    );
-  }
-}
-
-class _FindItButton extends StatelessWidget {
-  const _FindItButton({required this.active, required this.onPressed});
-  final bool active;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: active
-          ? theme.colorScheme.primary
-          : theme.colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(
-                active ? Icons.vibration : Icons.travel_explore,
-                color: active
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onPrimaryContainer,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      active ? 'Find it: ON' : 'Find it mode',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: active
-                            ? theme.colorScheme.onPrimary
-                            : theme.colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    Text(
-                      active
-                          ? 'Move around — pulses speed up when you\'re closer.'
-                          : 'Vibrate (and optionally beep) faster as signal strengthens.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: active
-                            ? theme.colorScheme.onPrimary.withValues(alpha: 0.85)
-                            : theme.colorScheme.onPrimaryContainer
-                                .withValues(alpha: 0.85),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                active ? Icons.toggle_on : Icons.toggle_off,
-                size: 32,
-                color: active
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onPrimaryContainer,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
