@@ -12,6 +12,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 
+    <!-- Notifications (Android 13+) and foreground-service plumbing so the persistent
+         "current strongest device" notification stays pinned during long scans. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <!-- Declare BLE as a feature; not required so the app still installs on devices without it -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 

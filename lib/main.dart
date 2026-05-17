@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'scanner_state.dart';
 import 'screens/app_shell.dart';
 import 'services/app_settings.dart';
+import 'services/background_scan.dart';
 import 'services/bonded_device_registry.dart';
 import 'services/device_memory.dart';
 import 'services/gatt_identifier.dart';
@@ -16,6 +17,7 @@ Future<void> main() async {
     AppSettings.instance.load(),
     NewDeviceMonitor.instance.load(),
     WatchMode.instance.load(),
+    BackgroundScan.instance.load(),
     ScannerState.instance.load(),
     GattIdentifier.instance.load(),
   ]);

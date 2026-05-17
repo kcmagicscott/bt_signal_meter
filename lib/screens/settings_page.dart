@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/app_settings.dart';
+import '../services/background_scan.dart';
 import '../services/new_device_monitor.dart';
 import '../services/watch_mode.dart';
 
@@ -17,6 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     AppSettings.instance.addListener(_onChange);
     WatchMode.instance.addListener(_onChange);
+    BackgroundScan.instance.addListener(_onChange);
   }
 
   void _onChange() {
@@ -27,6 +29,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     AppSettings.instance.removeListener(_onChange);
     WatchMode.instance.removeListener(_onChange);
+    BackgroundScan.instance.removeListener(_onChange);
     super.dispose();
   }
 
@@ -134,6 +137,16 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             value: WatchMode.instance.enabled,
             onChanged: (v) => WatchMode.instance.setEnabled(v),
+          ),
+          SwitchListTile(
+            title: const Text('Pinned strongest-device notification'),
+            subtitle: const Text(
+              'Keeps an ongoing notification in the shade with the current '
+              'strongest device while the app is running — useful for site '
+              'surveys without keeping the screen on.',
+            ),
+            value: BackgroundScan.instance.enabled,
+            onChanged: (v) => BackgroundScan.instance.setEnabled(v),
           ),
           const Divider(),
           _SectionHeader(text: 'New-device monitoring'),
