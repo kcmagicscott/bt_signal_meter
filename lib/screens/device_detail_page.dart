@@ -25,6 +25,7 @@ import '../widgets/hot_cold_indicator.dart';
 import '../widgets/rssi_chart.dart';
 import '../widgets/signal_gauge.dart';
 import '../widgets/sparkline.dart';
+import '../widgets/stat_grid.dart';
 import '../widgets/sweep_sheet.dart';
 import 'gatt_explorer_page.dart';
 
@@ -52,6 +53,11 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   /// True once we've detected the device dropping offline while find-it was
   /// active. Triggers the visual + haptic "lost signal!" alert.
   bool _lostSignal = false;
+
+  /// True when the smoothed signal was within 1 dB of peak last tick. Used
+  /// to detect *entering* the lock-on zone (transition false→true) so the
+  /// celebratory haptic + chime fires exactly once per lock-on.
+  bool _wasAtPeak = false;
   late final Listenable _appState = Listenable.merge([
     ScannerState.instance,
     DeviceMemory.instance,
@@ -101,6 +107,29 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     if (_findItPeakRssi == null || r > _findItPeakRssi!) {
       _findItPeakRssi = r;
       _findItPeakTime = DateTime.now();
+    }
+
+    // Lock-on detection: when smoothed RSSI comes within 1 dB of the peak
+    // (and we actually have a peak, i.e. there's data to compare against),
+    // fire a triple-pulse "locked!" haptic + alert chime once per entry.
+    if (_findItPeakRssi != null && r >= _findItPeakRssi! - 1) {
+      if (!_wasAtPeak) {
+        _wasAtPeak = true;
+        HapticFeedback.mediumImpact();
+        Timer(const Duration(milliseconds: 120),
+            () => HapticFeedback.mediumImpact());
+        Timer(const Duration(milliseconds: 280),
+            () => HapticFeedback.heavyImpact());
+        if (_audioOn) {
+          SystemSound.play(SystemSoundType.alert);
+        }
+      }
+    } else {
+      // Hysteresis: only un-set when we've dropped well below peak so the
+      // lock-on doesn't re-fire on small jitter.
+      if (_wasAtPeak && r < _findItPeakRssi! - 3) {
+        _wasAtPeak = false;
+      }
     }
   }
 
@@ -157,6 +186,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
       _findItPeakRssi = null;
       _findItPeakTime = null;
       _lostSignal = false;
+      _wasAtPeak = false;
     });
     if (_findItMode) {
       _updatePeakAndOfflineCheck();
@@ -703,18 +733,18 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             onSweep: () => showSweepSheet(context, rec.id),
           ),
           const SizedBox(height: 16),
-          _StatGrid(
+          StatGrid(
             stats: [
-              _Stat('Distance (est.)',
+              Stat('Distance (est.)',
                   formatDistance(dist, imperial: settings.imperialDistance)),
-              _Stat('Avg RSSI',
+              Stat('Avg RSSI',
                   rec.avgRssi == null ? '—' : '${rec.avgRssi!.toStringAsFixed(1)} dBm'),
-              _Stat('Min',
+              Stat('Min',
                   rec.minRssi == null ? '—' : '${rec.minRssi} dBm'),
-              _Stat('Max',
+              Stat('Max',
                   rec.maxRssi == null ? '—' : '${rec.maxRssi} dBm'),
-              _Stat('Samples', '${rec.samples.length}'),
-              _Stat(
+              Stat('Samples', '${rec.samples.length}'),
+              Stat(
                 'Tx @ 1 m',
                 calibration != null
                     ? '$calibration dBm (cal.)'
@@ -1225,52 +1255,6 @@ class _StartCompassPainter extends CustomPainter {
       old.angleRad != angleRad ||
       old.primary != primary ||
       old.outline != outline;
-}
-
-class _StatGrid extends StatelessWidget {
-  const _StatGrid({required this.stats});
-  final List<_Stat> stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: stats.map((s) {
-        return Container(
-          width: 150,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                s.label,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                s.value,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _Stat {
-  const _Stat(this.label, this.value);
-  final String label;
-  final String value;
 }
 
 class _InfoRow extends StatelessWidget {

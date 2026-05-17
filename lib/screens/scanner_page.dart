@@ -11,16 +11,11 @@ import '../services/gatt_identifier.dart';
 import '../services/new_device_monitor.dart';
 import '../services/session_recorder.dart';
 import '../utils/bt_helpers.dart';
-import '../utils/device_guess.dart';
-import '../widgets/info_chip.dart';
-import '../widgets/signal_gauge.dart';
-import '../widgets/sparkline.dart';
+import '../widgets/device_list_tile.dart';
 import 'about_page.dart';
 import 'device_detail_page.dart';
 import 'identify_device_page.dart';
-import 'radar_page.dart';
 import 'session_detail_page.dart';
-import 'settings_page.dart';
 
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
@@ -50,8 +45,45 @@ class _ScannerPageState extends State<ScannerPage> {
   void _onStateChange() {
     if (!mounted) return;
     _applyWakelock();
+    _maybeShowMilestone();
     setState(() {});
   }
+
+  void _maybeShowMilestone() {
+    final m = NewDeviceMonitor.instance.popPendingMilestone();
+    if (m == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Text(_milestoneEmoji(m), style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 12),
+            Expanded(child: Text(_milestoneText(m))),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  static String _milestoneEmoji(int m) => switch (m) {
+        1 => '👋',
+        10 => '🎯',
+        50 => '🌟',
+        100 => '🎉',
+        250 => '🚀',
+        500 => '🏆',
+        1000 => '💎',
+        _ => '✨',
+      };
+
+  static String _milestoneText(int m) => switch (m) {
+        1 => 'First device discovered!',
+        _ => '$m distinct devices seen — nice scanning.',
+      };
 
   Future<void> _applyWakelock() async {
     final want = AppSettings.instance.keepScreenOn &&
@@ -212,13 +244,6 @@ class _ScannerPageState extends State<ScannerPage> {
         backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
         actions: [
           IconButton(
-            tooltip: 'Radar view',
-            icon: const Icon(Icons.radar),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const RadarPage()),
-            ),
-          ),
-          IconButton(
             tooltip: 'Clear list',
             icon: const Icon(Icons.delete_sweep_outlined),
             onPressed: state.allDevices.isEmpty ? null : state.clearAll,
@@ -296,11 +321,6 @@ class _ScannerPageState extends State<ScannerPage> {
                     MaterialPageRoute(builder: (_) => const AboutPage()),
                   );
                   break;
-                case 'settings':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsPage()),
-                  );
-                  break;
                 case 'stale':
                   final n = state.removeStale(
                     staleAfter: Duration(
@@ -345,14 +365,6 @@ class _ScannerPageState extends State<ScannerPage> {
                   child: ListTile(
                     leading: Icon(Icons.timer_off_outlined),
                     title: Text('Remove stale devices'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'settings',
-                  child: ListTile(
-                    leading: Icon(Icons.tune),
-                    title: Text('Settings'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -848,7 +860,7 @@ class _AnimatedDeviceListState extends State<_AnimatedDeviceList> {
         itemCount: widget.devices.length,
         itemBuilder: (_, i) {
           final d = widget.devices[i];
-          return _DeviceListTile(
+          return DeviceListTile(
             key: ValueKey(d.id),
             record: d,
             onTap: () => widget.onTap(d),
@@ -882,7 +894,7 @@ class _AnimatedDeviceListState extends State<_AnimatedDeviceList> {
                       });
                     }
                   },
-                  child: _DeviceListTile(
+                  child: DeviceListTile(
                     record: widget.devices[i],
                     onTap: () => widget.onTap(widget.devices[i]),
                     onLongPress: () => widget.onLongPress(widget.devices[i]),
@@ -923,444 +935,6 @@ class _MeasuredTileState extends State<_MeasuredTile> {
   }
 }
 
-class _DeviceListTile extends StatelessWidget {
-  const _DeviceListTile({
-    super.key,
-    required this.record,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final DeviceRecord record;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = AppSettings.instance;
-    final manufacturer = record.manufacturerId == null
-        ? null
-        : manufacturerNameFor(record.manufacturerId!);
-    final rssi = record.smoothedRssi(settings.smoothingWindow);
-    final mem = DeviceMemory.instance;
-    final customLabel = mem.labelFor(record.id.str);
-    final isFavorite = mem.isFavorite(record.id.str);
-    final newAge = NewDeviceMonitor.instance.sinceFirstSeen(record.id.str);
-    final isNew = NewDeviceMonitor.instance.isNew(record.id.str);
-    final bondedName = BondedDeviceRegistry.instance.bondedNameFor(record.id.str);
-    final isPaired = bondedName != null;
-    final hasName = record.localName != null && record.localName!.isNotEmpty;
-    final displayName =
-        customLabel ?? bondedName ?? (hasName ? record.name : '(unnamed)');
-    final ageSeconds = DateTime.now().difference(record.lastSeen).inSeconds;
-    final isStale = ageSeconds >= settings.staleAfterSeconds;
-    final isOffline = record.isOfflineFor(settings.offlineThreshold);
-    final dist = isOffline
-        ? null
-        : estimateDistanceMeters(
-            rssi: rssi,
-            measuredPowerAt1m:
-                mem.calibratedTxPowerFor(record.id.str) ?? record.txPower ?? -59,
-          );
-    final guess = guessDeviceType(record);
-    final theme = Theme.of(context);
-
-    switch (settings.densityMode) {
-      case DensityMode.dense:
-        return _buildDense(
-          context: context,
-          theme: theme,
-          rssi: rssi,
-          displayName: displayName,
-          isOffline: isOffline,
-          isStale: isStale,
-          isFavorite: isFavorite,
-          mem: mem,
-        );
-      case DensityMode.compact:
-        return _buildCompact(
-          context: context,
-          theme: theme,
-          rssi: rssi,
-          displayName: displayName,
-          manufacturer: manufacturer,
-          guess: guess,
-          isOffline: isOffline,
-          isStale: isStale,
-          isFavorite: isFavorite,
-          isNew: isNew,
-          newAge: newAge,
-          isPaired: isPaired,
-          dist: dist,
-          ageSeconds: ageSeconds,
-          settings: settings,
-          mem: mem,
-        );
-      case DensityMode.comfortable:
-        break;
-    }
-
-    return Opacity(
-      opacity: isStale ? 0.55 : 1.0,
-      child: ListTile(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        leading: IconButton(
-          tooltip: isFavorite ? 'Unstar' : 'Star',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          onPressed: () => mem.toggleFavorite(record.id.str),
-          icon: Icon(
-            isFavorite ? Icons.star : Icons.star_border,
-            color: isFavorite
-                ? Colors.amber.shade700
-                : theme.colorScheme.outline,
-            size: 22,
-          ),
-        ),
-        title: Row(
-          children: [
-            Flexible(
-              child: Text(
-                displayName,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight:
-                      (customLabel != null || hasName) ? FontWeight.w500 : FontWeight.w400,
-                  color: (customLabel != null || hasName)
-                      ? null
-                      : theme.colorScheme.outline,
-                  fontStyle: customLabel != null ? FontStyle.italic : null,
-                ),
-              ),
-            ),
-            if (customLabel != null && hasName) ...[
-              const SizedBox(width: 6),
-              Text(
-                '· ${record.name}',
-                style: theme.textTheme.bodySmall,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            if (isNew) ...[
-              const SizedBox(width: 6),
-              _NewPulseBadge(age: newAge),
-            ],
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              record.id.str,
-              style: theme.textTheme.bodySmall,
-            ),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                if (isPaired)
-                  const InfoChip(
-                      text: 'Paired',
-                      accent: true,
-                      icon: Icons.bluetooth_connected),
-                if (guess != null)
-                  InfoChip(text: guess.label, icon: guess.icon)
-                else if (manufacturer != null)
-                  InfoChip(text: manufacturer, icon: Icons.devices_other),
-                if (!isOffline)
-                  InfoChip(
-                    text:
-                        '~${formatDistance(dist, imperial: settings.imperialDistance)}',
-                  ),
-                InfoChip(text: '${record.samples.length} samples'),
-                if (isOffline)
-                  InfoChip(text: 'offline ${ageSeconds}s')
-                else if (isStale)
-                  InfoChip(text: 'stale ${ageSeconds}s'),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Sparkline(
-              samples: record.samples,
-              color: qualityFromRssi(rssi).color,
-              maxWindowSeconds: 300,
-              offlineAfter: settings.offlineThreshold,
-            ),
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            SignalBars(rssi: rssi, isOffline: isOffline),
-            const SizedBox(height: 4),
-            if (isOffline)
-              Text(
-                '—',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500,
-                ),
-              )
-            else
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (record.trend() != 0)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 2),
-                      child: Icon(
-                        record.trend() > 0
-                            ? Icons.trending_up
-                            : Icons.trending_down,
-                        size: 14,
-                        color: record.trend() > 0
-                            ? Colors.green
-                            : Colors.red,
-                      ),
-                    ),
-                  Text(
-                    '$rssi dBm',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: qualityFromRssi(rssi).color,
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompact({
-    required BuildContext context,
-    required ThemeData theme,
-    required int rssi,
-    required String displayName,
-    required String? manufacturer,
-    required DeviceGuess? guess,
-    required bool isOffline,
-    required bool isStale,
-    required bool isFavorite,
-    required bool isNew,
-    required Duration? newAge,
-    required bool isPaired,
-    required double? dist,
-    required int ageSeconds,
-    required AppSettings settings,
-    required DeviceMemory mem,
-  }) {
-    final qColor = qualityFromRssi(rssi).color;
-    final subtitleParts = <String>[
-      ?guess?.label,
-      if (guess == null) ?manufacturer,
-      if (!isOffline) '~${formatDistance(dist, imperial: settings.imperialDistance)}',
-      if (isPaired) 'paired',
-      if (isOffline) 'offline ${ageSeconds}s' else if (isStale) 'stale ${ageSeconds}s',
-    ].where((s) => s.isNotEmpty).toList();
-    return Opacity(
-      opacity: isStale ? 0.55 : 1.0,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-          child: Row(
-            children: [
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: () => mem.toggleFavorite(record.id.str),
-                icon: Icon(
-                  isFavorite ? Icons.star : Icons.star_border,
-                  color: isFavorite
-                      ? Colors.amber.shade700
-                      : theme.colorScheme.outline,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayName,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        if (isNew) ...[
-                          const SizedBox(width: 6),
-                          _NewPulseBadge(age: newAge),
-                        ],
-                      ],
-                    ),
-                    if (subtitleParts.isNotEmpty)
-                      Text(
-                        subtitleParts.join(' · '),
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.outline,
-                          fontSize: 11,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              SignalBars(rssi: rssi, isOffline: isOffline, height: 16),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 46,
-                child: Text(
-                  isOffline ? '—' : '$rssi',
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    color: isOffline ? Colors.grey.shade500 : qColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDense({
-    required BuildContext context,
-    required ThemeData theme,
-    required int rssi,
-    required String displayName,
-    required bool isOffline,
-    required bool isStale,
-    required bool isFavorite,
-    required DeviceMemory mem,
-  }) {
-    final qColor = qualityFromRssi(rssi).color;
-    return Opacity(
-      opacity: isStale ? 0.55 : 1.0,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: () => mem.toggleFavorite(record.id.str),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    isFavorite ? Icons.star : Icons.star_border,
-                    color: isFavorite
-                        ? Colors.amber.shade700
-                        : theme.colorScheme.outline.withValues(alpha: 0.6),
-                    size: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  displayName,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: isOffline ? Colors.grey.shade500 : null,
-                  ),
-                ),
-              ),
-              SignalBars(rssi: rssi, isOffline: isOffline, height: 12),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 38,
-                child: Text(
-                  isOffline ? '—' : '$rssi',
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    color: isOffline ? Colors.grey.shade500 : qColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NewPulseBadge extends StatefulWidget {
-  const _NewPulseBadge({this.age});
-  final Duration? age;
-
-  @override
-  State<_NewPulseBadge> createState() => _NewPulseBadgeState();
-}
-
-class _NewPulseBadgeState extends State<_NewPulseBadge>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1100),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  String _ageLabel(Duration? d) {
-    if (d == null) return 'NEW';
-    if (d.inMinutes < 1) return 'NEW';
-    return 'NEW · ${d.inMinutes}m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final showPulse = widget.age == null || widget.age!.inSeconds < 90;
-    final badge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: Colors.redAccent.shade200,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        _ageLabel(widget.age),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-    if (!showPulse) return badge;
-    return ScaleTransition(
-      scale: Tween(begin: 0.92, end: 1.08).animate(_ctrl),
-      child: badge,
-    );
-  }
-}
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.scanning, this.favoritesOnly = false});

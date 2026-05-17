@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'scanner_state.dart';
-import 'screens/scanner_page.dart';
+import 'screens/app_shell.dart';
 import 'services/app_settings.dart';
 import 'services/bonded_device_registry.dart';
 import 'services/device_memory.dart';
@@ -45,7 +45,7 @@ class BtSignalApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const ScannerPage(),
+      home: const AppShell(),
     );
   }
 }

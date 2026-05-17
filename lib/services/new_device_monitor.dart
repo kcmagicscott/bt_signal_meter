@@ -15,21 +15,41 @@ class NewDeviceMonitor extends ChangeNotifier {
   static final NewDeviceMonitor instance = NewDeviceMonitor._();
 
   static const _prefsKey = 'known_device_ids_v1';
+  static const _milestonePrefsKey = 'highest_milestone_reached_v1';
   static const _maxKnownIds = 2000;
   static const Duration _newBadgeDuration = Duration(minutes: 30);
 
+  /// Lifetime totals that trigger a celebratory toast when crossed. Tuned so
+  /// the early ones feel rewarding and the later ones aren't spammy.
+  static const List<int> _milestones = [1, 10, 50, 100, 250, 500, 1000, 2500];
+
   final Set<String> _knownIds = {};
   final Map<String, DateTime> _firstSeenThisSession = {};
+  int _highestMilestoneReached = 0;
+
+  /// The next milestone we've crossed but haven't yet displayed (consumed
+  /// by the UI via [popPendingMilestone]). Null when nothing's pending.
+  int? _pendingMilestone;
+
   bool _loaded = false;
 
   bool get isLoaded => _loaded;
   int get knownCount => _knownIds.length;
+
+  /// Returns and clears any unshown milestone. UI calls this on each
+  /// notifyListeners tick and shows a toast if non-null.
+  int? popPendingMilestone() {
+    final m = _pendingMilestone;
+    _pendingMilestone = null;
+    return m;
+  }
 
   Future<void> load() async {
     if (_loaded) return;
     final prefs = await SharedPreferences.getInstance();
     final list = prefs.getStringList(_prefsKey);
     if (list != null) _knownIds.addAll(list);
+    _highestMilestoneReached = prefs.getInt(_milestonePrefsKey) ?? 0;
     _loaded = true;
     notifyListeners();
   }
@@ -72,8 +92,24 @@ class NewDeviceMonitor extends ChangeNotifier {
     if (_knownIds.contains(id)) return;
     _knownIds.add(id);
     _firstSeenThisSession[id] = DateTime.now();
+    _checkMilestone();
     _save();
     notifyListeners();
+  }
+
+  void _checkMilestone() {
+    final count = _knownIds.length;
+    for (final m in _milestones) {
+      if (count >= m && m > _highestMilestoneReached) {
+        _highestMilestoneReached = m;
+        _pendingMilestone = m;
+        // Persist asynchronously so we don't re-fire the same milestone if
+        // the app is killed and restarted before save completes.
+        SharedPreferences.getInstance().then(
+          (p) => p.setInt(_milestonePrefsKey, m),
+        );
+      }
+    }
   }
 
   /// True if this device was added to the known set during the current
@@ -94,8 +130,11 @@ class NewDeviceMonitor extends ChangeNotifier {
   Future<void> forgetAll() async {
     _knownIds.clear();
     _firstSeenThisSession.clear();
+    _highestMilestoneReached = 0;
+    _pendingMilestone = null;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsKey);
+    await prefs.remove(_milestonePrefsKey);
   }
 }
