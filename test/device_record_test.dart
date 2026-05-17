@@ -105,4 +105,94 @@ void main() {
       expect(r.trend(), 0);
     });
   });
+
+  group('DeviceRecord medianIntervalMs', () {
+    test('returns null with fewer than 3 samples', () {
+      final r = _record();
+      final now = DateTime.now();
+      r.samples.add(RssiSample(now.subtract(const Duration(seconds: 1)), -70));
+      r.samples.add(RssiSample(now, -70));
+      expect(r.medianIntervalMs(), isNull);
+    });
+
+    test('computes median of consecutive gaps', () {
+      final r = _record();
+      final now = DateTime.now();
+      // Gaps: 100ms, 200ms, 100ms, 300ms → sorted [100, 100, 200, 300]
+      // → median (index 2) = 200
+      r.samples.addAll([
+        RssiSample(now.subtract(const Duration(milliseconds: 700)), -70),
+        RssiSample(now.subtract(const Duration(milliseconds: 600)), -70),
+        RssiSample(now.subtract(const Duration(milliseconds: 400)), -70),
+        RssiSample(now.subtract(const Duration(milliseconds: 300)), -70),
+        RssiSample(now, -70),
+      ]);
+      expect(r.medianIntervalMs(), 200);
+    });
+
+    test('ignores samples outside the window', () {
+      final r = _record();
+      final now = DateTime.now();
+      // Two old samples, then three recent ones at 100ms intervals.
+      r.samples.addAll([
+        RssiSample(now.subtract(const Duration(minutes: 10)), -70),
+        RssiSample(now.subtract(const Duration(minutes: 9)), -70),
+        RssiSample(now.subtract(const Duration(milliseconds: 200)), -70),
+        RssiSample(now.subtract(const Duration(milliseconds: 100)), -70),
+        RssiSample(now, -70),
+      ]);
+      expect(r.medianIntervalMs(), 100);
+    });
+  });
+
+  group('DeviceRecord rssiStdDev', () {
+    test('returns null with fewer than 4 samples in window', () {
+      final r = _record();
+      final now = DateTime.now();
+      r.samples.addAll([
+        RssiSample(now, -70),
+        RssiSample(now, -70),
+        RssiSample(now, -70),
+      ]);
+      expect(r.rssiStdDev(), isNull);
+    });
+
+    test('zero stddev when all samples equal', () {
+      final r = _record();
+      final now = DateTime.now();
+      for (var i = 0; i < 5; i++) {
+        r.samples
+            .add(RssiSample(now.subtract(Duration(seconds: i)), -70));
+      }
+      expect(r.rssiStdDev(), closeTo(0.0, 1e-9));
+    });
+
+    test('nonzero stddev when samples vary', () {
+      final r = _record();
+      final now = DateTime.now();
+      // Mean = -70, deviations [-2, -1, 0, 1, 2]; population stddev
+      // = sqrt((4+1+0+1+4)/5) = sqrt(2) ≈ 1.4142.
+      final values = [-72, -71, -70, -69, -68];
+      for (var i = 0; i < values.length; i++) {
+        r.samples
+            .add(RssiSample(now.subtract(Duration(seconds: i)), values[i]));
+      }
+      expect(r.rssiStdDev(), closeTo(1.4142, 0.001));
+    });
+
+    test('ignores samples outside the window', () {
+      final r = _record();
+      final now = DateTime.now();
+      // Big outliers way in the past should not affect recent stddev.
+      r.samples.addAll([
+        RssiSample(now.subtract(const Duration(minutes: 10)), -20),
+        RssiSample(now.subtract(const Duration(minutes: 9)), -100),
+        RssiSample(now.subtract(const Duration(seconds: 3)), -70),
+        RssiSample(now.subtract(const Duration(seconds: 2)), -70),
+        RssiSample(now.subtract(const Duration(seconds: 1)), -70),
+        RssiSample(now, -70),
+      ]);
+      expect(r.rssiStdDev(), closeTo(0.0, 1e-9));
+    });
+  });
 }
