@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/device_record.dart';
 import '../services/app_settings.dart';
-import '../services/bonded_device_registry.dart';
 import '../services/device_memory.dart';
 import '../services/new_device_monitor.dart';
 import '../utils/bt_helpers.dart';
+import '../utils/device_display.dart';
 import '../utils/device_guess.dart';
 import 'info_chip.dart';
 import 'new_pulse_badge.dart';
@@ -31,67 +31,67 @@ class DeviceListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettings.instance;
+    final d = DeviceDisplay.from(record);
     final manufacturer = record.manufacturerId == null
         ? null
         : manufacturerNameFor(record.manufacturerId!);
-    final rssi = record.smoothedRssi(settings.smoothingWindow);
-    final mem = DeviceMemory.instance;
-    final customLabel = mem.labelFor(record.id.str);
-    final isFavorite = mem.isFavorite(record.id.str);
     final newAge = NewDeviceMonitor.instance.sinceFirstSeen(record.id.str);
     final isNew = NewDeviceMonitor.instance.isNew(record.id.str);
-    final bondedName =
-        BondedDeviceRegistry.instance.bondedNameFor(record.id.str);
-    final isPaired = bondedName != null;
-    final hasName = record.localName != null && record.localName!.isNotEmpty;
-    final displayName =
-        customLabel ?? bondedName ?? (hasName ? record.name : '(unnamed)');
-    final ageSeconds = DateTime.now().difference(record.lastSeen).inSeconds;
-    final isStale = ageSeconds >= settings.staleAfterSeconds;
-    final isOffline = record.isOfflineFor(settings.offlineThreshold);
-    final dist = isOffline
+    final dist = d.isOffline
         ? null
         : estimateDistanceMeters(
-            rssi: rssi,
-            measuredPowerAt1m: mem.calibratedTxPowerFor(record.id.str) ??
-                record.txPower ??
-                -59,
+            rssi: d.smoothedRssi,
+            measuredPowerAt1m:
+                d.calibratedTxPower ?? record.txPower ?? -59,
           );
     final guess = guessDeviceType(record);
     final theme = Theme.of(context);
+    final mem = DeviceMemory.instance;
 
     switch (settings.densityMode) {
       case DensityMode.dense:
         return _buildDense(
           theme: theme,
-          rssi: rssi,
-          displayName: displayName,
-          isOffline: isOffline,
-          isStale: isStale,
-          isFavorite: isFavorite,
+          rssi: d.smoothedRssi,
+          displayName: d.displayName,
+          isOffline: d.isOffline,
+          isStale: d.isStale,
+          isFavorite: d.isFavorite,
           mem: mem,
         );
       case DensityMode.compact:
         return _buildCompact(
           theme: theme,
-          rssi: rssi,
-          displayName: displayName,
+          rssi: d.smoothedRssi,
+          displayName: d.displayName,
           manufacturer: manufacturer,
           guess: guess,
-          isOffline: isOffline,
-          isStale: isStale,
-          isFavorite: isFavorite,
+          isOffline: d.isOffline,
+          isStale: d.isStale,
+          isFavorite: d.isFavorite,
           isNew: isNew,
           newAge: newAge,
-          isPaired: isPaired,
+          isPaired: d.isPaired,
           dist: dist,
-          ageSeconds: ageSeconds,
+          ageSeconds: d.ageSeconds,
           settings: settings,
           mem: mem,
         );
       case DensityMode.comfortable:
         break;
     }
+
+    // Local aliases for the comfortable layout below — keeps the existing
+    // template readable without rewriting every reference.
+    final rssi = d.smoothedRssi;
+    final isOffline = d.isOffline;
+    final isStale = d.isStale;
+    final isFavorite = d.isFavorite;
+    final customLabel = d.customLabel;
+    final hasName = d.hasAdvertisedName;
+    final displayName = d.displayName;
+    final isPaired = d.isPaired;
+    final ageSeconds = d.ageSeconds;
 
     return _withSignalStrip(
       rssi: rssi,

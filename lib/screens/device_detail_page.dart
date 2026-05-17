@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -18,6 +19,7 @@ import '../services/device_memory.dart';
 import '../services/gatt_identifier.dart';
 import '../utils/beacon_parsers.dart';
 import '../utils/bt_helpers.dart';
+import '../utils/device_display.dart';
 import '../utils/device_guess.dart';
 import '../utils/sensor_parsers.dart';
 import '../widgets/compass_dial.dart';
@@ -466,22 +468,23 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     }
 
     final theme = Theme.of(context);
-    final mem = DeviceMemory.instance;
     final settings = AppSettings.instance;
-    final label = mem.labelFor(rec.id.str);
-    final bondedName = BondedDeviceRegistry.instance.bondedNameFor(rec.id.str);
-    final isPaired = bondedName != null;
-    final isFavorite = mem.isFavorite(rec.id.str);
-    final calibration = mem.calibratedTxPowerFor(rec.id.str);
-    final smoothedRssi = rec.smoothedRssi(settings.smoothingWindow);
-    final isOffline = rec.isOfflineFor(settings.offlineThreshold);
+    final d = DeviceDisplay.from(rec);
+    // Aliases for readability in the long Scaffold body below.
+    final label = d.customLabel;
+    final bondedName = d.bondedName;
+    final isPaired = d.isPaired;
+    final isFavorite = d.isFavorite;
+    final calibration = d.calibratedTxPower;
+    final smoothedRssi = d.smoothedRssi;
+    final isOffline = d.isOffline;
     final dist = isOffline
         ? null
         : estimateDistanceMeters(
             rssi: smoothedRssi,
             measuredPowerAt1m: calibration ?? rec.txPower ?? -59,
           );
-    final age = DateTime.now().difference(rec.lastSeen);
+    final age = Duration(seconds: d.ageSeconds);
     final ibeacon = rec.iBeacon;
     final eddystone = rec.eddystone;
     final guess = guessDeviceType(rec);
@@ -1093,7 +1096,7 @@ class _DirectionRow extends StatelessWidget {
         children: [
           Text('Estimated direction', style: theme.textTheme.titleSmall),
           const SizedBox(height: 12),
-          CompassDial(fix: f, size: 150),
+          _LiveCompassDial(fix: f, size: 150),
           const SizedBox(height: 14),
           FilledButton.tonalIcon(
             icon: const Icon(Icons.refresh, size: 18),
@@ -1102,6 +1105,53 @@ class _DirectionRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// CompassDial that subscribes to the device's magnetometer and rotates
+/// dynamically so the bearing arrow always points at the target device,
+/// not just at the absolute compass bearing. Lets the saved-fix view
+/// behave like a "follow me" pointer even after the sweep finalized.
+class _LiveCompassDial extends StatefulWidget {
+  const _LiveCompassDial({required this.fix, this.size = 140});
+  final DirectionFix fix;
+  final double size;
+
+  @override
+  State<_LiveCompassDial> createState() => _LiveCompassDialState();
+}
+
+class _LiveCompassDialState extends State<_LiveCompassDial> {
+  StreamSubscription<CompassEvent>? _sub;
+  double? _heading;
+
+  @override
+  void initState() {
+    super.initState();
+    final stream = FlutterCompass.events;
+    if (stream != null) {
+      _sub = stream.listen((e) {
+        if (!mounted) return;
+        final h = e.heading;
+        if (h == null) return;
+        setState(() => _heading = h < 0 ? h + 360 : h);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompassDial(
+      fix: widget.fix,
+      deviceHeadingDeg: _heading,
+      size: widget.size,
     );
   }
 }
