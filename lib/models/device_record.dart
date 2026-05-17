@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../utils/beacon_parsers.dart';
@@ -123,6 +125,46 @@ class DeviceRecord {
         recent.skip(mid).map((s) => s.rssi).reduce((a, b) => a + b) /
             (recent.length - mid);
     return newer - older;
+  }
+
+  /// Median time between consecutive samples over the recent [window],
+  /// in milliseconds. Approximates the device's advertising interval —
+  /// nearby phones / AirPods commonly hit ~100 ms; tracker beacons and
+  /// battery-saving sensors often advertise at 1–10 s. Returns null when
+  /// there aren't enough samples in the window to compute a median.
+  int? medianIntervalMs({Duration window = const Duration(seconds: 20)}) {
+    if (samples.length < 3) return null;
+    final cutoff = DateTime.now().subtract(window);
+    final recent = samples.where((s) => s.time.isAfter(cutoff)).toList();
+    if (recent.length < 3) return null;
+    final intervals = <int>[];
+    for (var i = 1; i < recent.length; i++) {
+      intervals
+          .add(recent[i].time.difference(recent[i - 1].time).inMilliseconds);
+    }
+    intervals.sort();
+    return intervals[intervals.length ~/ 2];
+  }
+
+  /// Population standard deviation of RSSI over the recent [window].
+  /// Small values mean the device sits in a stable spot; large values
+  /// mean the signal is bouncing around (movement, interference, or
+  /// reflective surroundings). Returns null without enough data.
+  double? rssiStdDev({Duration window = const Duration(seconds: 20)}) {
+    if (samples.length < 4) return null;
+    final cutoff = DateTime.now().subtract(window);
+    final recent = samples
+        .where((s) => s.time.isAfter(cutoff))
+        .map((s) => s.rssi)
+        .toList();
+    if (recent.length < 4) return null;
+    final mean = recent.reduce((a, b) => a + b) / recent.length;
+    var sumSq = 0.0;
+    for (final r in recent) {
+      final d = r - mean;
+      sumSq += d * d;
+    }
+    return math.sqrt(sumSq / recent.length);
   }
 
   /// Parsed iBeacon data if the advertisement matches the iBeacon prefix.

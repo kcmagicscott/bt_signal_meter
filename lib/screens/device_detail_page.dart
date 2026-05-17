@@ -753,6 +753,8 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                     ? '$calibration dBm (cal.)'
                     : (rec.txPower == null ? '—' : '${rec.txPower} dBm'),
               ),
+              Stat('Adv interval', _intervalLabel(rec.medianIntervalMs())),
+              Stat('Stability', _stabilityLabel(rec.rssiStdDev())),
             ],
           ),
           if (ibeacon != null || eddystone != null) ...[
@@ -1470,4 +1472,22 @@ class _SensorCard extends StatelessWidget {
       ],
     );
   }
+}
+
+
+String _intervalLabel(int? ms) {
+  if (ms == null) return "—";
+  if (ms < 1000) return "~$ms ms";
+  final s = ms / 1000;
+  return s < 10 ? "~${s.toStringAsFixed(1)} s" : "~${s.round()} s";
+}
+
+String _stabilityLabel(double? sigma) {
+  if (sigma == null) return "—";
+  final label = sigma < 1.5
+      ? "Stable"
+      : sigma < 3.5
+          ? "Moderate"
+          : "Jumpy";
+  return "$label · ±${sigma.toStringAsFixed(1)} dB";
 }
