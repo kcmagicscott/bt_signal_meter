@@ -6,6 +6,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 
 import '../models/direction_fix.dart';
 import '../scanner_state.dart';
+import '../utils/direction_math.dart';
 import 'device_memory.dart';
 
 /// Drives the live "point at the device" experience. Once started, the
@@ -33,7 +34,6 @@ class DirectionFinder extends ChangeNotifier {
   // Safety cap — even if the user forgets to dismiss the sheet, we don't
   // want a streaming sensor subscription running forever.
   static const Duration _maxDuration = Duration(minutes: 5);
-  static const List<double> _smoothingKernel = [0.10, 0.25, 0.30, 0.25, 0.10];
   static const double _maxAngularVelocityDegPerSec = 120;
 
   DeviceIdentifier? _target;
@@ -226,33 +226,12 @@ class DirectionFinder extends ChangeNotifier {
     _samples[b].add(rssi);
   }
 
-  static double _median(List<int> values) {
-    final sorted = List<int>.from(values)..sort();
-    final n = sorted.length;
-    if (n.isOdd) return sorted[n ~/ 2].toDouble();
-    return (sorted[n ~/ 2 - 1] + sorted[n ~/ 2]) / 2;
-  }
-
   List<double?> _smoothedMedians() {
     final raw = List<double?>.filled(_bucketCount, null);
     for (var i = 0; i < _bucketCount; i++) {
-      if (_samples[i].isNotEmpty) raw[i] = _median(_samples[i]);
+      raw[i] = medianOfInts(_samples[i]);
     }
-    final smoothed = List<double?>.filled(_bucketCount, null);
-    for (var i = 0; i < _bucketCount; i++) {
-      var sum = 0.0;
-      var w = 0.0;
-      for (var k = 0; k < _smoothingKernel.length; k++) {
-        final j = (i + k - 2 + _bucketCount) % _bucketCount;
-        final v = raw[j];
-        if (v != null) {
-          sum += v * _smoothingKernel[k];
-          w += _smoothingKernel[k];
-        }
-      }
-      if (w > 0) smoothed[i] = sum / w;
-    }
-    return smoothed;
+    return smoothCircular(raw);
   }
 
   int? _peakBucket(List<double?> smoothed) {
@@ -270,16 +249,7 @@ class DirectionFinder extends ChangeNotifier {
   }
 
   double _interpolatedBearing(int peakB, List<double?> smoothed) {
-    final left = smoothed[(peakB - 1 + _bucketCount) % _bucketCount];
-    final center = smoothed[peakB];
-    final right = smoothed[(peakB + 1) % _bucketCount];
-    if (left == null || center == null || right == null) {
-      return (peakB + 0.5) * _bucketDeg;
-    }
-    final denom = left - 2 * center + right;
-    if (denom.abs() < 1e-6) return (peakB + 0.5) * _bucketDeg;
-    var offset = 0.5 * (left - right) / denom;
-    offset = offset.clamp(-0.5, 0.5);
+    final offset = parabolicOffset(peakB, smoothed);
     return ((peakB + 0.5 + offset) * _bucketDeg + 360) % 360;
   }
 
