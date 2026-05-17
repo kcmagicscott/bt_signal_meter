@@ -21,6 +21,7 @@ import '../utils/device_guess.dart';
 import '../utils/format_labels.dart';
 import '../utils/sensor_parsers.dart';
 import '../widgets/device_cards.dart';
+import '../widgets/baseline_card.dart';
 import '../widgets/direction_panel.dart';
 import '../widgets/hot_cold_indicator.dart';
 import '../widgets/info_row.dart';
@@ -236,6 +237,30 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
         SnackBar(content: Text('Calibrated at $smoothed dBm = 1 m')),
       );
     }
+  }
+
+  Future<void> _setBaseline(DeviceRecord rec, int currentRssi) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await DeviceMemory.instance.setBaseline(rec.id.str, currentRssi);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Baseline saved at $currentRssi dBm'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _clearBaseline(DeviceRecord rec) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await DeviceMemory.instance.setBaseline(rec.id.str, null);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Baseline cleared'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _clearCalibration(DeviceRecord rec) async {
@@ -734,6 +759,17 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
           DirectionPanel(
             fix: DeviceMemory.instance.directionFor(rec.id.str),
             onSweep: () => showSweepSheet(context, rec.id),
+          ),
+          const SizedBox(height: 12),
+          BaselineCard(
+            baselineRssi: DeviceMemory.instance.baselineRssiFor(rec.id.str),
+            baselineSetAt:
+                DeviceMemory.instance.baselineSetAtFor(rec.id.str),
+            currentRssi: smoothedRssi,
+            thresholdDb: settings.anomalyThresholdDb,
+            isOffline: isOffline,
+            onSet: () => _setBaseline(rec, smoothedRssi),
+            onClear: () => _clearBaseline(rec),
           ),
           const SizedBox(height: 16),
           StatGrid(

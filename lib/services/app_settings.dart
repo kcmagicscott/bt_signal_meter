@@ -42,6 +42,7 @@ class AppSettings extends ChangeNotifier {
   static const _kMonitoringSensitivity = 'settings.monitoring_sensitivity';
   static const _kImperialDistance = 'settings.imperial_distance';
   static const _kDensityMode = 'settings.density_mode';
+  static const _kAnomalyThresholdDb = 'settings.anomaly_threshold_db';
 
   int _chartWindowSeconds = 60;
   int _staleAfterSeconds = 5;
@@ -51,6 +52,7 @@ class AppSettings extends ChangeNotifier {
   int _monitoringSensitivity = 3;
   bool _imperialDistance = false;
   DensityMode _densityMode = DensityMode.comfortable;
+  int _anomalyThresholdDb = 10;
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
@@ -63,6 +65,7 @@ class AppSettings extends ChangeNotifier {
   int get monitoringSensitivity => _monitoringSensitivity;
   bool get imperialDistance => _imperialDistance;
   DensityMode get densityMode => _densityMode;
+  int get anomalyThresholdDb => _anomalyThresholdDb;
 
   /// Length of silence after which we consider a device offline (vs. merely stale).
   Duration get offlineThreshold =>
@@ -79,6 +82,7 @@ class AppSettings extends ChangeNotifier {
     _monitoringSensitivity = prefs.getInt(_kMonitoringSensitivity) ?? 3;
     _imperialDistance = prefs.getBool(_kImperialDistance) ?? false;
     _densityMode = DensityMode.fromKey(prefs.getString(_kDensityMode));
+    _anomalyThresholdDb = prefs.getInt(_kAnomalyThresholdDb) ?? 10;
     _loaded = true;
     notifyListeners();
   }
@@ -91,6 +95,13 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> cycleDensityMode() => setDensityMode(_densityMode.next);
+
+  Future<void> setAnomalyThresholdDb(int v) async {
+    _anomalyThresholdDb = v.clamp(2, 30);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kAnomalyThresholdDb, _anomalyThresholdDb);
+  }
 
   Future<void> setImperialDistance(bool v) async {
     _imperialDistance = v;

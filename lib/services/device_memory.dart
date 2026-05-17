@@ -11,6 +11,8 @@ class DeviceNote {
     this.favorite = false,
     this.calibratedTxPower,
     this.direction,
+    this.baselineRssi,
+    this.baselineSetAt,
   });
 
   String? label;
@@ -23,11 +25,23 @@ class DeviceNote {
   /// Last sweep-to-find result for this device.
   DirectionFix? direction;
 
+  /// Reference RSSI captured at a known good moment. Lets the app warn
+  /// the user when the current reading drifts unexpectedly from this
+  /// baseline (movement, interference, low battery in the peripheral).
+  int? baselineRssi;
+
+  /// When [baselineRssi] was captured. Lets the UI surface "set 5 min ago"
+  /// vs "set 3 days ago" so the user can judge whether the baseline is
+  /// still meaningful.
+  DateTime? baselineSetAt;
+
   Map<String, dynamic> toJson() => {
         if (label != null) 'label': label,
         'favorite': favorite,
         if (calibratedTxPower != null) 'tx': calibratedTxPower,
         if (direction != null) 'dir': direction!.toJson(),
+        if (baselineRssi != null) 'bl': baselineRssi,
+        if (baselineSetAt != null) 'blt': baselineSetAt!.toIso8601String(),
       };
 
   factory DeviceNote.fromJson(Map<String, dynamic> j) => DeviceNote(
@@ -37,13 +51,18 @@ class DeviceNote {
         direction: j['dir'] == null
             ? null
             : DirectionFix.fromJson(j['dir'] as Map<String, dynamic>),
+        baselineRssi: j['bl'] as int?,
+        baselineSetAt: j['blt'] == null
+            ? null
+            : DateTime.tryParse(j['blt'] as String),
       );
 
   bool get isEmpty =>
       (label == null || label!.isEmpty) &&
       !favorite &&
       calibratedTxPower == null &&
-      direction == null;
+      direction == null &&
+      baselineRssi == null;
 }
 
 /// Persists user-added labels and favorite flags keyed by Bluetooth remote ID.
@@ -97,6 +116,22 @@ class DeviceMemory extends ChangeNotifier {
   int? calibratedTxPowerFor(String id) => _notes[id]?.calibratedTxPower;
 
   DirectionFix? directionFor(String id) => _notes[id]?.direction;
+
+  int? baselineRssiFor(String id) => _notes[id]?.baselineRssi;
+  DateTime? baselineSetAtFor(String id) => _notes[id]?.baselineSetAt;
+
+  Future<void> setBaseline(String id, int? rssi) async {
+    final existing = _notes[id] ?? DeviceNote();
+    existing.baselineRssi = rssi;
+    existing.baselineSetAt = rssi == null ? null : DateTime.now();
+    if (existing.isEmpty) {
+      _notes.remove(id);
+    } else {
+      _notes[id] = existing;
+    }
+    notifyListeners();
+    await _save();
+  }
 
   Future<void> setDirection(String id, DirectionFix? fix) async {
     final existing = _notes[id] ?? DeviceNote();
