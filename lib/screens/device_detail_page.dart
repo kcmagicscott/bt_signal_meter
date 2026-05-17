@@ -214,6 +214,16 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     );
   }
 
+  Future<void> _clearDirection(DeviceRecord rec) async {
+    await DeviceMemory.instance.setDirection(rec.id.str, null);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Saved direction cleared — tap Sweep to start fresh'),
+      ),
+    );
+  }
+
   IconData _confidenceIcon(Confidence c) {
     switch (c) {
       case Confidence.certain:
@@ -484,6 +494,9 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                 case 'identify':
                   _identifyViaGatt(rec);
                   break;
+                case 'clearDir':
+                  _clearDirection(rec);
+                  break;
                 case 'gatt':
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -559,6 +572,15 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                   child: ListTile(
                     leading: Icon(Icons.restore),
                     title: Text('Clear calibration'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              if (DeviceMemory.instance.directionFor(rec.id.str) != null)
+                const PopupMenuItem(
+                  value: 'clearDir',
+                  child: ListTile(
+                    leading: Icon(Icons.explore_off),
+                    title: Text('Clear saved direction'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
