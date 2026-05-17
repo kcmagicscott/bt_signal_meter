@@ -1,5 +1,3 @@
-import 'package:animated_list_plus/animated_list_plus.dart';
-import 'package:animated_list_plus/transitions.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -14,6 +12,7 @@ import '../services/new_device_monitor.dart';
 import '../services/session_recorder.dart';
 import '../utils/bt_helpers.dart';
 import '../utils/device_guess.dart';
+import '../widgets/info_chip.dart';
 import '../widgets/signal_gauge.dart';
 import '../widgets/sparkline.dart';
 import 'about_page.dart';
@@ -224,6 +223,19 @@ class _ScannerPageState extends State<ScannerPage> {
             icon: const Icon(Icons.delete_sweep_outlined),
             onPressed: state.allDevices.isEmpty ? null : state.clearAll,
           ),
+          IconButton(
+            tooltip: switch (AppSettings.instance.densityMode) {
+              DensityMode.comfortable => 'Density: comfortable',
+              DensityMode.compact => 'Density: compact',
+              DensityMode.dense => 'Density: dense',
+            },
+            icon: Icon(switch (AppSettings.instance.densityMode) {
+              DensityMode.comfortable => Icons.density_large,
+              DensityMode.compact => Icons.density_medium,
+              DensityMode.dense => Icons.density_small,
+            }),
+            onPressed: AppSettings.instance.cycleDensityMode,
+          ),
           PopupMenuButton<SortMode>(
             tooltip: 'Sort',
             icon: const Icon(Icons.sort),
@@ -403,46 +415,16 @@ class _ScannerPageState extends State<ScannerPage> {
                     onRefresh: () async {
                       state.removeStale();
                     },
-                    child: ImplicitlyAnimatedList<DeviceRecord>(
-                      items: devices,
-                      areItemsTheSame: (a, b) => a.id == b.id,
-                      insertDuration: const Duration(milliseconds: 300),
-                      removeDuration: const Duration(milliseconds: 200),
-                      updateDuration: const Duration(milliseconds: 400),
-                      itemBuilder: (ctx, animation, item, i) {
-                        return SizeFadeTransition(
-                          sizeFraction: 0.7,
-                          curve: Curves.easeInOut,
-                          animation: animation,
-                          child: _DeviceListTile(
-                            record: item,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    DeviceDetailPage(deviceId: item.id),
-                              ),
-                            ),
-                            onLongPress: () =>
-                                _showDeviceActions(context, item),
-                          ),
-                        );
-                      },
-                      updateItemBuilder: (ctx, animation, item) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: _DeviceListTile(
-                            record: item,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    DeviceDetailPage(deviceId: item.id),
-                              ),
-                            ),
-                            onLongPress: () =>
-                                _showDeviceActions(context, item),
-                          ),
-                        );
-                      },
+                    child: _AnimatedDeviceList(
+                      devices: devices,
+                      onTap: (item) => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              DeviceDetailPage(deviceId: item.id),
+                        ),
+                      ),
+                      onLongPress: (item) =>
+                          _showDeviceActions(context, item),
                     ),
                   ),
           ),
@@ -774,8 +756,176 @@ class _SummaryBar extends StatelessWidget {
   }
 }
 
+/// Stack-based scrolling list where each device tile is in an
+/// [AnimatedPositioned]. When the sort order changes (or a new device
+/// pushes one above another), tiles physically slide between their old
+/// and new Y positions instead of cross-fading in place. Each tile's
+/// height is measured on first layout so variable-content rows still
+/// stack correctly.
+class _AnimatedDeviceList extends StatefulWidget {
+  const _AnimatedDeviceList({
+    required this.devices,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final List<DeviceRecord> devices;
+  final void Function(DeviceRecord) onTap;
+  final void Function(DeviceRecord) onLongPress;
+
+  @override
+  State<_AnimatedDeviceList> createState() => _AnimatedDeviceListState();
+}
+
+class _AnimatedDeviceListState extends State<_AnimatedDeviceList> {
+  static const Duration _slideDuration = Duration(milliseconds: 380);
+  static const Curve _slideCurve = Curves.easeOutCubic;
+  // Above this many devices the Stack-of-AnimatedPositioned approach gets
+  // too heavy (every tile lives in the widget tree at once). Fall back to
+  // a virtualized ListView — no slide animation, but it scrolls smoothly
+  // through hundreds of items.
+  static const int _virtualizeThreshold = 80;
+
+  final Map<String, double> _heights = {};
+  Set<String> _knownIds = const {};
+  DensityMode _lastDensity = DensityMode.comfortable;
+
+  double _estimatedHeightFor(DensityMode m) => switch (m) {
+        DensityMode.comfortable => 124.0,
+        DensityMode.compact => 64.0,
+        DensityMode.dense => 36.0,
+      };
+
+  double _topFor(int index, double estimated) {
+    var top = 0.0;
+    for (var i = 0; i < index; i++) {
+      top += _heights[widget.devices[i].id.str] ?? estimated;
+    }
+    return top;
+  }
+
+  double _totalHeight(double estimated) {
+    var h = 0.0;
+    for (final d in widget.devices) {
+      h += _heights[d.id.str] ?? estimated;
+    }
+    return h;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _knownIds = widget.devices.map((d) => d.id.str).toSet();
+    _lastDensity = AppSettings.instance.densityMode;
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedDeviceList old) {
+    super.didUpdateWidget(old);
+    final newIds = widget.devices.map((d) => d.id.str).toSet();
+    if (newIds.length != _knownIds.length ||
+        !newIds.containsAll(_knownIds)) {
+      _heights.removeWhere((id, _) => !newIds.contains(id));
+      _knownIds = newIds;
+    }
+    final density = AppSettings.instance.densityMode;
+    if (density != _lastDensity) {
+      // Tile sizes are about to change drastically — drop stale measurements.
+      _heights.clear();
+      _lastDensity = density;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final density = AppSettings.instance.densityMode;
+    final estimated = _estimatedHeightFor(density);
+
+    if (widget.devices.length > _virtualizeThreshold) {
+      // Virtualized path — no slide animation, but renders fine at 400+.
+      return ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: widget.devices.length,
+        itemBuilder: (_, i) {
+          final d = widget.devices[i];
+          return _DeviceListTile(
+            key: ValueKey(d.id),
+            record: d,
+            onTap: () => widget.onTap(d),
+            onLongPress: () => widget.onLongPress(d),
+          );
+        },
+      );
+    }
+
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: SizedBox(
+        height: _totalHeight(estimated) + 8,
+        child: Stack(
+          children: [
+            for (var i = 0; i < widget.devices.length; i++)
+              AnimatedPositioned(
+                key: ValueKey(widget.devices[i].id),
+                duration: _slideDuration,
+                curve: _slideCurve,
+                top: _topFor(i, estimated),
+                left: 0,
+                right: 0,
+                child: _MeasuredTile(
+                  onHeight: (h) {
+                    final id = widget.devices[i].id.str;
+                    if ((_heights[id] ?? -1) != h) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        setState(() => _heights[id] = h);
+                      });
+                    }
+                  },
+                  child: _DeviceListTile(
+                    record: widget.devices[i],
+                    onTap: () => widget.onTap(widget.devices[i]),
+                    onLongPress: () => widget.onLongPress(widget.devices[i]),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Reports its child's rendered height back to the parent via [onHeight]
+/// after each layout pass. Used so the parent stack can position the next
+/// tile correctly without hard-coding row heights.
+class _MeasuredTile extends StatefulWidget {
+  const _MeasuredTile({required this.child, required this.onHeight});
+  final Widget child;
+  final ValueChanged<double> onHeight;
+
+  @override
+  State<_MeasuredTile> createState() => _MeasuredTileState();
+}
+
+class _MeasuredTileState extends State<_MeasuredTile> {
+  final GlobalKey _key = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _key.currentContext?.findRenderObject() as RenderBox?;
+      final h = box?.size.height;
+      if (h != null && h > 0) widget.onHeight(h);
+    });
+    return KeyedSubtree(key: _key, child: widget.child);
+  }
+}
+
 class _DeviceListTile extends StatelessWidget {
   const _DeviceListTile({
+    super.key,
     required this.record,
     required this.onTap,
     required this.onLongPress,
@@ -814,6 +964,41 @@ class _DeviceListTile extends StatelessWidget {
           );
     final guess = guessDeviceType(record);
     final theme = Theme.of(context);
+
+    switch (settings.densityMode) {
+      case DensityMode.dense:
+        return _buildDense(
+          context: context,
+          theme: theme,
+          rssi: rssi,
+          displayName: displayName,
+          isOffline: isOffline,
+          isStale: isStale,
+          isFavorite: isFavorite,
+          mem: mem,
+        );
+      case DensityMode.compact:
+        return _buildCompact(
+          context: context,
+          theme: theme,
+          rssi: rssi,
+          displayName: displayName,
+          manufacturer: manufacturer,
+          guess: guess,
+          isOffline: isOffline,
+          isStale: isStale,
+          isFavorite: isFavorite,
+          isNew: isNew,
+          newAge: newAge,
+          isPaired: isPaired,
+          dist: dist,
+          ageSeconds: ageSeconds,
+          settings: settings,
+          mem: mem,
+        );
+      case DensityMode.comfortable:
+        break;
+    }
 
     return Opacity(
       opacity: isStale ? 0.55 : 1.0,
@@ -875,24 +1060,24 @@ class _DeviceListTile extends StatelessWidget {
               runSpacing: 4,
               children: [
                 if (isPaired)
-                  const _Chip(
+                  const InfoChip(
                       text: 'Paired',
                       accent: true,
                       icon: Icons.bluetooth_connected),
                 if (guess != null)
-                  _Chip(text: guess.label, icon: guess.icon)
+                  InfoChip(text: guess.label, icon: guess.icon)
                 else if (manufacturer != null)
-                  _Chip(text: manufacturer, icon: Icons.devices_other),
+                  InfoChip(text: manufacturer, icon: Icons.devices_other),
                 if (!isOffline)
-                  _Chip(
+                  InfoChip(
                     text:
                         '~${formatDistance(dist, imperial: settings.imperialDistance)}',
                   ),
-                _Chip(text: '${record.samples.length} samples'),
+                InfoChip(text: '${record.samples.length} samples'),
                 if (isOffline)
-                  _Chip(text: 'offline ${ageSeconds}s')
+                  InfoChip(text: 'offline ${ageSeconds}s')
                 else if (isStale)
-                  _Chip(text: 'stale ${ageSeconds}s'),
+                  InfoChip(text: 'stale ${ageSeconds}s'),
               ],
             ),
             const SizedBox(height: 6),
@@ -949,6 +1134,178 @@ class _DeviceListTile extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildCompact({
+    required BuildContext context,
+    required ThemeData theme,
+    required int rssi,
+    required String displayName,
+    required String? manufacturer,
+    required DeviceGuess? guess,
+    required bool isOffline,
+    required bool isStale,
+    required bool isFavorite,
+    required bool isNew,
+    required Duration? newAge,
+    required bool isPaired,
+    required double? dist,
+    required int ageSeconds,
+    required AppSettings settings,
+    required DeviceMemory mem,
+  }) {
+    final qColor = qualityFromRssi(rssi).color;
+    final subtitleParts = <String>[
+      ?guess?.label,
+      if (guess == null) ?manufacturer,
+      if (!isOffline) '~${formatDistance(dist, imperial: settings.imperialDistance)}',
+      if (isPaired) 'paired',
+      if (isOffline) 'offline ${ageSeconds}s' else if (isStale) 'stale ${ageSeconds}s',
+    ].where((s) => s.isNotEmpty).toList();
+    return Opacity(
+      opacity: isStale ? 0.55 : 1.0,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+          child: Row(
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () => mem.toggleFavorite(record.id.str),
+                icon: Icon(
+                  isFavorite ? Icons.star : Icons.star_border,
+                  color: isFavorite
+                      ? Colors.amber.shade700
+                      : theme.colorScheme.outline,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayName,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        if (isNew) ...[
+                          const SizedBox(width: 6),
+                          _NewPulseBadge(age: newAge),
+                        ],
+                      ],
+                    ),
+                    if (subtitleParts.isNotEmpty)
+                      Text(
+                        subtitleParts.join(' · '),
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              SignalBars(rssi: rssi, isOffline: isOffline, height: 16),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 46,
+                child: Text(
+                  isOffline ? '—' : '$rssi',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: isOffline ? Colors.grey.shade500 : qColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDense({
+    required BuildContext context,
+    required ThemeData theme,
+    required int rssi,
+    required String displayName,
+    required bool isOffline,
+    required bool isStale,
+    required bool isFavorite,
+    required DeviceMemory mem,
+  }) {
+    final qColor = qualityFromRssi(rssi).color;
+    return Opacity(
+      opacity: isStale ? 0.55 : 1.0,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () => mem.toggleFavorite(record.id.str),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    isFavorite ? Icons.star : Icons.star_border,
+                    color: isFavorite
+                        ? Colors.amber.shade700
+                        : theme.colorScheme.outline.withValues(alpha: 0.6),
+                    size: 16,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  displayName,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: isOffline ? Colors.grey.shade500 : null,
+                  ),
+                ),
+              ),
+              SignalBars(rssi: rssi, isOffline: isOffline, height: 12),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 38,
+                child: Text(
+                  isOffline ? '—' : '$rssi',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: isOffline ? Colors.grey.shade500 : qColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _NewPulseBadge extends StatefulWidget {
@@ -1001,44 +1358,6 @@ class _NewPulseBadgeState extends State<_NewPulseBadge>
     return ScaleTransition(
       scale: Tween(begin: 0.92, end: 1.08).animate(_ctrl),
       child: badge,
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.text, this.accent = false, this.icon});
-  final String text;
-  final bool accent;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final fg = accent ? theme.colorScheme.onPrimaryContainer : null;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: accent
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: fg ?? theme.colorScheme.outline),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            text,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: fg,
-              fontWeight: accent ? FontWeight.w600 : null,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
