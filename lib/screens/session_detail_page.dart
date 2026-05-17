@@ -10,6 +10,7 @@ import '../services/device_memory.dart';
 import '../services/session_recorder.dart';
 import '../utils/bt_helpers.dart';
 import '../widgets/sparkline.dart';
+import '../widgets/stat_grid.dart';
 import 'device_detail_page.dart';
 
 class SessionDetailPage extends StatelessWidget {
@@ -54,16 +55,16 @@ class SessionDetailPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _StatGrid(stats: [
-            _Stat('Duration', formatDuration(duration)),
-            _Stat('Devices seen', '${devices.length}'),
-            _Stat(
+          StatGrid(stats: [
+            Stat('Duration', formatDuration(duration)),
+            Stat('Devices seen', '${devices.length}'),
+            Stat(
               'Total samples',
               '${devices.fold<int>(0, (sum, d) => sum + samplesInWindow(d))}',
             ),
-            _Stat('Started', formatTime(start)),
-            _Stat('Ended', formatTime(end)),
-            _Stat('Avg RSSI', _avgRssi(devices, start, end)),
+            Stat('Started', formatTime(start)),
+            Stat('Ended', formatTime(end)),
+            Stat('Avg RSSI', _avgRssi(devices, start, end)),
           ]),
           const SizedBox(height: 16),
           Text('Devices in this session', style: theme.textTheme.titleMedium),
@@ -189,48 +190,3 @@ class _DeviceRow extends StatelessWidget {
   }
 }
 
-class _StatGrid extends StatelessWidget {
-  const _StatGrid({required this.stats});
-  final List<_Stat> stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: stats.map((s) {
-        return Container(
-          width: 150,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                s.label,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                s.value,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _Stat {
-  const _Stat(this.label, this.value);
-  final String label;
-  final String value;
-}
