@@ -48,14 +48,31 @@ class _RadarPageState extends State<RadarPage>
     super.dispose();
   }
 
-  /// Stable angle in radians derived from the device address.
-  double _angleFor(String id) {
+  /// Returns (angle in radians, isReal). When the device has a stored
+  /// direction fix above the confidence threshold, the angle reflects the
+  /// real compass bearing — top of the screen is North. Otherwise we fall
+  /// back to a hash of the device address so the radar still looks like
+  /// a radar instead of all devices piling up at noon.
+  ({double angle, bool isReal}) _angleFor(String id) {
+    final fix = DeviceMemory.instance.directionFor(id);
+    if (fix != null && fix.confidence >= 0.3) {
+      // Compass bearing -> screen-space radian: bearing 0° = North = top,
+      // 90° = East = right. Screen coords have x→right, y↓, so North is
+      // at angle -π/2.
+      return (
+        angle: (fix.bearingDeg - 90) * math.pi / 180.0,
+        isReal: true,
+      );
+    }
     var h = 2166136261;
     for (final c in id.codeUnits) {
       h ^= c;
       h = (h * 16777619) & 0xFFFFFFFF;
     }
-    return (h % 360) * (math.pi / 180.0);
+    return (
+      angle: (h % 360) * (math.pi / 180.0),
+      isReal: false,
+    );
   }
 
   void _onTap(TapDownDetails details, Size canvasSize) {
@@ -101,6 +118,10 @@ class _RadarPageState extends State<RadarPage>
               animation: _sweep,
               builder: (ctx, _) {
                 final placed = <_PlacedDevice>[];
+                var realCount = 0;
+                for (final d in devices) {
+                  if (_angleFor(d.id.str).isReal) realCount++;
+                }
                 final painter = _RadarPainter(
                   devices: devices,
                   smoothing: smoothing,
@@ -108,6 +129,7 @@ class _RadarPageState extends State<RadarPage>
                   labelFor: (id) => mem.labelFor(id),
                   isFavorite: (id) => mem.isFavorite(id),
                   angleFor: _angleFor,
+                  realBearingCount: realCount,
                   recordPlacement: placed.add,
                 );
                 _placed = placed;
@@ -146,6 +168,7 @@ class _RadarPainter extends CustomPainter {
     required this.labelFor,
     required this.isFavorite,
     required this.angleFor,
+    required this.realBearingCount,
     required this.recordPlacement,
   });
 
@@ -154,7 +177,8 @@ class _RadarPainter extends CustomPainter {
   final double sweepAngle;
   final String? Function(String) labelFor;
   final bool Function(String) isFavorite;
-  final double Function(String) angleFor;
+  final ({double angle, bool isReal}) Function(String) angleFor;
+  final int realBearingCount;
   final void Function(_PlacedDevice) recordPlacement;
 
   // RSSI range mapped to radar radius. Stronger -> closer to center.
@@ -169,9 +193,57 @@ class _RadarPainter extends CustomPainter {
     _paintBackground(canvas, size);
     _paintRings(canvas, center, maxR);
     _paintSpokes(canvas, center, maxR);
+    _paintCardinals(canvas, center, maxR);
     _paintSweep(canvas, center, maxR);
     _paintCenter(canvas, center);
     _paintDevices(canvas, center, maxR);
+    _paintStatus(canvas, size);
+  }
+
+  void _paintCardinals(Canvas canvas, Offset center, double maxR) {
+    const labels = ['N', 'E', 'S', 'W'];
+    // Angles correspond to top, right, bottom, left in screen coords.
+    final angles = [-math.pi / 2, 0.0, math.pi / 2, math.pi];
+    for (var i = 0; i < 4; i++) {
+      final a = angles[i];
+      final tp = TextPainter(
+        text: TextSpan(
+          text: labels[i],
+          style: TextStyle(
+            color: i == 0
+                ? const Color(0xFF6FE3B0)
+                : const Color(0xFF1FA86A).withValues(alpha: 0.6),
+            fontSize: i == 0 ? 14 : 12,
+            fontWeight: i == 0 ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final pos = center +
+          Offset(math.cos(a), math.sin(a)) * (maxR + 4);
+      tp.paint(
+        canvas,
+        Offset(pos.dx - tp.width / 2, pos.dy - tp.height / 2),
+      );
+    }
+  }
+
+  void _paintStatus(Canvas canvas, Size size) {
+    if (devices.isEmpty) return;
+    final text = realBearingCount == 0
+        ? 'No directions known yet — sweep a device to position it'
+        : '$realBearingCount of ${devices.length} positioned by sweep · others estimated';
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.55),
+          fontSize: 11,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: size.width - 24);
+    tp.paint(canvas, Offset(12, size.height - tp.height - 8));
   }
 
   void _paintBackground(Canvas canvas, Size size) {
@@ -273,7 +345,9 @@ class _RadarPainter extends CustomPainter {
       final t = ((r - rssiMin) / (rssiMax - rssiMin)).clamp(0.0, 1.0);
       // strong (close to 0) -> small radius; weak -> outer edge.
       final radius = maxR * (1 - t);
-      final angle = angleFor(d.id.str);
+      final result = angleFor(d.id.str);
+      final angle = result.angle;
+      final isReal = result.isReal;
       final pos = center + Offset(math.cos(angle), math.sin(angle)) * radius;
       final quality = qualityFromRssi(r);
 
@@ -287,10 +361,32 @@ class _RadarPainter extends CustomPainter {
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pos, glowRadius, glow);
 
+      // Devices with a real bearing get a thin bearing line from center —
+      // makes the radial direction unambiguous and signals "this dot is
+      // real, not synthetic placement".
+      if (isReal) {
+        final ray = Paint()
+          ..color = Colors.white.withValues(alpha: 0.20)
+          ..strokeWidth = 1.0;
+        canvas.drawLine(center, pos, ray);
+      }
+
       final dot = Paint()
         ..color = quality.color
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(pos, 4.5, dot);
+      canvas.drawCircle(pos, isReal ? 5.5 : 4.5, dot);
+
+      if (isReal) {
+        // Crisp white outline so positioned-by-fix devices visibly pop.
+        canvas.drawCircle(
+          pos,
+          5.5,
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.9)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2,
+        );
+      }
 
       if (isFavorite(d.id.str)) {
         final star = Paint()
@@ -329,5 +425,6 @@ class _RadarPainter extends CustomPainter {
   bool shouldRepaint(_RadarPainter old) =>
       old.sweepAngle != sweepAngle ||
       old.devices != devices ||
-      old.smoothing != smoothing;
+      old.smoothing != smoothing ||
+      old.realBearingCount != realBearingCount;
 }
