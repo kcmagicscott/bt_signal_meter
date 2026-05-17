@@ -1,6 +1,33 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// How tightly device tiles are packed in the scanner list. Cycling
+/// through these is the main way to handle scenes with many devices
+/// (e.g., 400+ in a crowded space).
+enum DensityMode {
+  comfortable,
+  compact,
+  dense;
+
+  String get _key => switch (this) {
+        DensityMode.comfortable => 'comfortable',
+        DensityMode.compact => 'compact',
+        DensityMode.dense => 'dense',
+      };
+
+  static DensityMode fromKey(String? s) => switch (s) {
+        'compact' => DensityMode.compact,
+        'dense' => DensityMode.dense,
+        _ => DensityMode.comfortable,
+      };
+
+  DensityMode get next => switch (this) {
+        DensityMode.comfortable => DensityMode.compact,
+        DensityMode.compact => DensityMode.dense,
+        DensityMode.dense => DensityMode.comfortable,
+      };
+}
+
 /// App-wide tunables, persisted across launches.
 class AppSettings extends ChangeNotifier {
   AppSettings._();
@@ -14,6 +41,7 @@ class AppSettings extends ChangeNotifier {
   static const _kReorderInterval = 'settings.reorder_interval_s';
   static const _kMonitoringSensitivity = 'settings.monitoring_sensitivity';
   static const _kImperialDistance = 'settings.imperial_distance';
+  static const _kDensityMode = 'settings.density_mode';
 
   int _chartWindowSeconds = 60;
   int _staleAfterSeconds = 5;
@@ -22,6 +50,7 @@ class AppSettings extends ChangeNotifier {
   int _reorderIntervalSeconds = 3;
   int _monitoringSensitivity = 3;
   bool _imperialDistance = false;
+  DensityMode _densityMode = DensityMode.comfortable;
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
@@ -33,6 +62,7 @@ class AppSettings extends ChangeNotifier {
   int get reorderIntervalSeconds => _reorderIntervalSeconds;
   int get monitoringSensitivity => _monitoringSensitivity;
   bool get imperialDistance => _imperialDistance;
+  DensityMode get densityMode => _densityMode;
 
   /// Length of silence after which we consider a device offline (vs. merely stale).
   Duration get offlineThreshold =>
@@ -48,9 +78,19 @@ class AppSettings extends ChangeNotifier {
     _reorderIntervalSeconds = prefs.getInt(_kReorderInterval) ?? 3;
     _monitoringSensitivity = prefs.getInt(_kMonitoringSensitivity) ?? 3;
     _imperialDistance = prefs.getBool(_kImperialDistance) ?? false;
+    _densityMode = DensityMode.fromKey(prefs.getString(_kDensityMode));
     _loaded = true;
     notifyListeners();
   }
+
+  Future<void> setDensityMode(DensityMode mode) async {
+    _densityMode = mode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kDensityMode, mode._key);
+  }
+
+  Future<void> cycleDensityMode() => setDensityMode(_densityMode.next);
 
   Future<void> setImperialDistance(bool v) async {
     _imperialDistance = v;
