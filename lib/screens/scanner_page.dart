@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/device_record.dart';
@@ -12,6 +11,7 @@ import '../services/new_device_monitor.dart';
 import '../services/session_recorder.dart';
 import '../utils/bt_helpers.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/scanner_banners.dart';
 import 'about_page.dart';
 import 'device_detail_page.dart';
 import 'identify_device_page.dart';
@@ -384,11 +384,11 @@ class _ScannerPageState extends State<ScannerPage> {
       body: Column(
         children: [
           if (!state.isAdapterOn)
-            _AdapterOffBanner(
+            AdapterOffBanner(
               onTurnOn: state.tryTurnOnAdapter,
             ),
           if (SessionRecorder.instance.isRecording)
-            _RecordingBanner(elapsed: SessionRecorder.instance.elapsed),
+            RecordingBanner(elapsed: SessionRecorder.instance.elapsed),
           _SearchBar(
             controller: _searchCtrl,
             onChanged: state.setSearchQuery,
@@ -406,7 +406,7 @@ class _ScannerPageState extends State<ScannerPage> {
                 .length,
           ),
           if (state.statusMessage != null)
-            _StatusBanner(
+            StatusBanner(
               message: state.statusMessage!,
               showSettingsAction:
                   state.statusMessage!.toLowerCase().contains('permission'),
@@ -449,60 +449,6 @@ class _ScannerPageState extends State<ScannerPage> {
         backgroundColor: state.isScanning
             ? Theme.of(context).colorScheme.errorContainer
             : Theme.of(context).colorScheme.primaryContainer,
-      ),
-    );
-  }
-}
-
-class _RecordingBanner extends StatelessWidget {
-  const _RecordingBanner({required this.elapsed});
-  final Duration? elapsed;
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: const Color(0xFFB71C1C),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.fiber_manual_record,
-                color: Colors.white, size: 16),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                elapsed == null
-                    ? 'Recording session'
-                    : 'Recording session · ${_fmt(elapsed!)}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                SessionRecorder.instance.stopSession();
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const SessionDetailPage(),
-                  ),
-                );
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('STOP'),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -563,72 +509,6 @@ class _ManufacturerFilterStrip extends StatelessWidget {
   }
 }
 
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({
-    required this.message,
-    required this.showSettingsAction,
-  });
-
-  final String message;
-  final bool showSettingsAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.amber.shade100,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-        child: Row(
-          children: [
-            const Icon(Icons.info_outline, size: 18),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-            if (showSettingsAction)
-              TextButton(
-                onPressed: () async {
-                  await openAppSettings();
-                },
-                child: const Text('Open settings'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AdapterOffBanner extends StatelessWidget {
-  const _AdapterOffBanner({required this.onTurnOn});
-  final VoidCallback onTurnOn;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
-          children: [
-            Icon(Icons.bluetooth_disabled,
-                color: theme.colorScheme.onErrorContainer),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Bluetooth is off. Turn it on to scan for devices.',
-                style: TextStyle(color: theme.colorScheme.onErrorContainer),
-              ),
-            ),
-            TextButton(
-              onPressed: onTurnOn,
-              child: const Text('Turn on'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _SearchBar extends StatelessWidget {
   const _SearchBar({
