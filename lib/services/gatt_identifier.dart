@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/uuids.dart';
+
 /// Identity readout pulled from a BLE peripheral's Device Information service
 /// (0x180A). Most consumer products implement at least the manufacturer and
 /// model number characteristics, giving us an authoritative product name.
@@ -61,14 +63,6 @@ class GattIdentifier extends ChangeNotifier {
   static final GattIdentifier instance = GattIdentifier._();
 
   static const _prefsKey = 'gatt_identities_v1';
-  static const _disServiceUuid = '0000180a-0000-1000-8000-00805f9b34fb';
-  static const _manufacturerNameUuid =
-      '00002a29-0000-1000-8000-00805f9b34fb';
-  static const _modelNumberUuid = '00002a24-0000-1000-8000-00805f9b34fb';
-  static const _firmwareRevisionUuid =
-      '00002a26-0000-1000-8000-00805f9b34fb';
-  static const _hardwareRevisionUuid =
-      '00002a27-0000-1000-8000-00805f9b34fb';
 
   final Map<String, GattIdentity> _cache = {};
 
@@ -120,7 +114,7 @@ class GattIdentifier extends ChangeNotifier {
       );
       final services = await device.discoverServices(timeout: 10);
       final dis = services.where(
-        (s) => s.serviceUuid.str.toLowerCase() == _disServiceUuid,
+        (s) => s.serviceUuid.str.toLowerCase() == kDeviceInformationServiceUuid,
       );
       if (dis.isNotEmpty) {
         result = await _readDis(dis.first);
@@ -155,16 +149,16 @@ class GattIdentifier extends ChangeNotifier {
         final s = _decodeAscii(value);
         if (s == null) continue;
         switch (uuid) {
-          case _manufacturerNameUuid:
+          case kManufacturerNameCharUuid:
             mfr = s;
             break;
-          case _modelNumberUuid:
+          case kModelNumberCharUuid:
             model = s;
             break;
-          case _firmwareRevisionUuid:
+          case kFirmwareRevisionCharUuid:
             fw = s;
             break;
-          case _hardwareRevisionUuid:
+          case kHardwareRevisionCharUuid:
             hw = s;
             break;
         }

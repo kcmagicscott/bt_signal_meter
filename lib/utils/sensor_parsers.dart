@@ -1,4 +1,5 @@
 import '../models/device_record.dart';
+import 'uuids.dart';
 
 /// One snapshot of environmental sensor data extracted from a BLE advert.
 /// Fields are nullable so a parser can report only the values it understood.
@@ -36,8 +37,8 @@ class SensorReading {
       humidityPercent == null ? '—' : '${humidityPercent!.toStringAsFixed(0)}%';
 }
 
-const String _xiaomiAtcServiceUuid = '0000181a-0000-1000-8000-00805f9b34fb';
-const String _xiaomiNativeServiceUuid = '0000fe95-0000-1000-8000-00805f9b34fb';
+const String _xiaomiAtcServiceUuid = kEnvironmentalSensingServiceUuid;
+const String _xiaomiNativeServiceUuid = kXiaomiMiBeaconServiceUuid;
 
 /// Try every known sensor format in turn. Returns the first non-empty reading
 /// it finds, or null if nothing matched.

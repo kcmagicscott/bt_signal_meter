@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'device_guess.dart';
+import 'uuids.dart';
 
 /// Google Fast Pair advertises a 3-byte product model ID in service data
 /// under UUID 0xFE2C. Google maintains a global registry; this is a curated
@@ -58,8 +59,10 @@ class _FastPairProduct {
   final IconData icon;
 }
 
-/// Fast Pair service UUID (16-bit form, expanded).
-const String fastPairServiceUuid = '0000fe2c-0000-1000-8000-00805f9b34fb';
+/// Fast Pair service UUID (16-bit form, expanded). Re-exported as
+/// [kFastPairServiceUuid] from `uuids.dart`; the public name here is kept
+/// as a stable alias for callers and tests that already reference it.
+const String fastPairServiceUuid = kFastPairServiceUuid;
 
 /// Extracts the model ID and returns a guess if it's a known product.
 /// Returns null if the data isn't Fast Pair, the ID is unknown, or the

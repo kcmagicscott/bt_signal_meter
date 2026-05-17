@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../utils/beacon_parsers.dart';
+import '../utils/uuids.dart';
 
 class RssiSample {
   final DateTime time;
@@ -178,8 +179,7 @@ class DeviceRecord {
 
   /// Parsed Eddystone frame if the device broadcasts the Eddystone service.
   Eddystone? get eddystone {
-    const eddystoneUuid = '0000feaa-0000-1000-8000-00805f9b34fb';
-    final data = serviceData[eddystoneUuid];
+    final data = serviceData[kEddystoneServiceUuid];
     if (data == null) return null;
     return parseEddystone(data);
   }

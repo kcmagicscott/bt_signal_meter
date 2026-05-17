@@ -5,6 +5,7 @@ import '../models/device_record.dart';
 import 'fast_pair.dart';
 import 'local_name_patterns.dart';
 import 'manufacturer_ids.dart';
+import 'uuids.dart';
 
 class DeviceGuess {
   const DeviceGuess(this.label, {this.confidence = Confidence.likely, this.icon});
@@ -151,11 +152,11 @@ DeviceGuess? _guessApple(List<int> data) {
 
 DeviceGuess? _guessFromServices(List<Guid> uuids) {
   final s = uuids.map((u) => u.str.toLowerCase()).toSet();
-  if (s.contains('0000180d-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kHeartRateServiceUuid)) {
     return const DeviceGuess('Heart rate monitor',
         icon: Icons.monitor_heart);
   }
-  if (s.contains('00001812-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kHidServiceUuid)) {
     return const DeviceGuess('Keyboard, mouse, or gamepad (HID)',
         icon: Icons.keyboard);
   }
@@ -163,21 +164,20 @@ DeviceGuess? _guessFromServices(List<Guid> uuids) {
     return const DeviceGuess('Tile tracker',
         confidence: Confidence.certain, icon: Icons.location_searching);
   }
-  if (s.contains('0000fe2c-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kFastPairServiceUuid)) {
     return const DeviceGuess('Google Fast Pair device', icon: Icons.devices);
   }
-  if (s.contains('0000fef3-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kFastPairLegacyServiceUuid)) {
     return const DeviceGuess('Google Fast Pair device', icon: Icons.devices);
   }
-  if (s.contains('0000fe9f-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kGoogleServiceUuid)) {
     return const DeviceGuess('Google device', icon: Icons.devices);
   }
-  if (s.contains('0000fd6f-0000-1000-8000-00805f9b34fb')) {
+  if (s.contains(kExposureNotificationServiceUuid)) {
     return const DeviceGuess('Exposure Notification (contact tracing)',
         icon: Icons.coronavirus);
   }
-  if (s.contains('0000180f-0000-1000-8000-00805f9b34fb') &&
-      uuids.length == 1) {
+  if (s.contains(kBatteryServiceUuid) && uuids.length == 1) {
     return const DeviceGuess('Battery-reporting peripheral',
         icon: Icons.battery_full);
   }
