@@ -105,6 +105,50 @@ class _ScannerPageState extends State<ScannerPage> {
     super.dispose();
   }
 
+  Future<void> _markWaypoint(BuildContext context) async {
+    final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final label = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Add waypoint'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'e.g. "entryway", "row 6"',
+            ),
+            onSubmitted: (v) => Navigator.of(ctx).pop(v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text),
+              child: const Text('Mark'),
+            ),
+          ],
+        ),
+      );
+      if (label == null || label.trim().isEmpty) return;
+      final wp = SessionRecorder.instance.markWaypoint(label);
+      if (wp != null && context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Waypoint dropped: ${wp.label}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      controller.dispose();
+    }
+  }
+
   void _toggleScan() {
     final s = ScannerState.instance;
     if (s.isScanning) {
@@ -388,7 +432,11 @@ class _ScannerPageState extends State<ScannerPage> {
               onTurnOn: state.tryTurnOnAdapter,
             ),
           if (SessionRecorder.instance.isRecording)
-            RecordingBanner(elapsed: SessionRecorder.instance.elapsed),
+            RecordingBanner(
+              elapsed: SessionRecorder.instance.elapsed,
+              waypointCount: SessionRecorder.instance.waypoints.length,
+              onMarkWaypoint: () => _markWaypoint(context),
+            ),
           _SearchBar(
             controller: _searchCtrl,
             onChanged: state.setSearchQuery,

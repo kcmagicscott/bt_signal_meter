@@ -66,6 +66,22 @@ class SessionDetailPage extends StatelessWidget {
             Stat('Ended', formatTime(end)),
             Stat('Avg RSSI', _avgRssi(devices, start, end)),
           ]),
+          if (recorder.waypoints.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Waypoints', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            ...recorder.waypoints.asMap().entries.map((e) {
+              final wp = e.value;
+              final offset = wp.time.difference(start);
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.place_outlined),
+                title: Text(wp.label),
+                subtitle: Text('${formatDuration(offset)} into session · ${formatTime(wp.time)}'),
+                dense: true,
+              );
+            }),
+          ],
           const SizedBox(height: 16),
           Text('Devices in this session', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -100,14 +116,27 @@ class SessionDetailPage extends StatelessWidget {
     DateTime end,
   ) async {
     final mem = DeviceMemory.instance;
-    final buf = StringBuffer('timestamp_iso,device_id,device_name,rssi_dbm\n');
+    final waypoints = SessionRecorder.instance.waypoints;
+    // Find the active waypoint at a given moment — the last one before t.
+    String waypointAt(DateTime t) {
+      String label = '';
+      for (final wp in waypoints) {
+        if (wp.time.isAfter(t)) break;
+        label = wp.label;
+      }
+      return label.replaceAll(',', ' ').replaceAll('\n', ' ');
+    }
+
+    final buf = StringBuffer(
+        'timestamp_iso,device_id,device_name,rssi_dbm,waypoint\n');
     for (final d in devices) {
       final name = (mem.labelFor(d.id.str) ?? d.name)
           .replaceAll(',', ' ')
           .replaceAll('\n', ' ');
       for (final s in d.samples) {
         if (s.time.isBefore(start) || s.time.isAfter(end)) continue;
-        buf.writeln('${s.time.toIso8601String()},${d.id.str},$name,${s.rssi}');
+        buf.writeln(
+            '${s.time.toIso8601String()},${d.id.str},$name,${s.rssi},${waypointAt(s.time)}');
       }
     }
     try {

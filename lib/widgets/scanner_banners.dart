@@ -5,11 +5,19 @@ import '../services/session_recorder.dart';
 import '../screens/session_detail_page.dart';
 
 /// Red banner that overlays the scanner while a recording session is active.
-/// Shows elapsed time and a STOP button that finalises the session and pushes
-/// the detail page.
+/// Shows elapsed time, a waypoint counter + "+ waypoint" action, and a STOP
+/// button that finalises the session and pushes the detail page.
 class RecordingBanner extends StatelessWidget {
-  const RecordingBanner({super.key, required this.elapsed});
+  const RecordingBanner({
+    super.key,
+    required this.elapsed,
+    required this.waypointCount,
+    required this.onMarkWaypoint,
+  });
+
   final Duration? elapsed;
+  final int waypointCount;
+  final VoidCallback onMarkWaypoint;
 
   static String _fmt(Duration d) {
     final m = d.inMinutes.toString().padLeft(2, '0');
@@ -20,6 +28,9 @@ class RecordingBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final wp = waypointCount == 0
+        ? ''
+        : ' · $waypointCount waypoint${waypointCount == 1 ? '' : 's'}';
     return Material(
       color: const Color(0xFFB71C1C),
       child: Padding(
@@ -32,13 +43,20 @@ class RecordingBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 elapsed == null
-                    ? 'Recording session'
-                    : 'Recording session · ${_fmt(elapsed!)}',
+                    ? 'Recording session$wp'
+                    : 'Recording · ${_fmt(elapsed!)}$wp',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
                 ),
               ),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.add_location_alt_outlined,
+                  color: Colors.white, size: 18),
+              label: const Text('Waypoint'),
+              onPressed: onMarkWaypoint,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
             ),
             TextButton(
               onPressed: () {
