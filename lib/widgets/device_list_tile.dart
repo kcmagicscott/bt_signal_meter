@@ -205,6 +205,7 @@ class DeviceListTile extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _StabilityDot(stdDev: record.rssiStdDev()),
                   if (record.trend() != 0)
                     Padding(
                       padding: const EdgeInsets.only(right: 2),
@@ -324,6 +325,7 @@ class DeviceListTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              if (!isOffline) _StabilityDot(stdDev: record.rssiStdDev()),
               SignalBars(rssi: rssi, isOffline: isOffline, height: 16),
               const SizedBox(width: 8),
               SizedBox(
@@ -430,6 +432,37 @@ class DeviceListTile extends StatelessWidget {
         border: Border(left: BorderSide(color: color, width: 3)),
       ),
       child: child,
+    );
+  }
+}
+
+/// Tiny coloured dot summarising how steady a device's RSSI has been
+/// over the recent window. Green = stable, amber = moderate, red =
+/// jumpy. Renders an empty 0-width SizedBox when there isn't enough
+/// signal history yet, so callers can drop it in unconditionally.
+class _StabilityDot extends StatelessWidget {
+  const _StabilityDot({required this.stdDev});
+  final double? stdDev;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = stdDev;
+    if (s == null) return const SizedBox.shrink();
+    final color = s < 1.5
+        ? const Color(0xFF66BB6A)
+        : s < 3.5
+            ? const Color(0xFFFFA726)
+            : const Color(0xFFEF5350);
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Container(
+        width: 6,
+        height: 6,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+        ),
+      ),
     );
   }
 }
