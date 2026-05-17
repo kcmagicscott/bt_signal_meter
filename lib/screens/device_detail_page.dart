@@ -18,9 +18,11 @@ import '../utils/beacon_parsers.dart';
 import '../utils/bt_helpers.dart';
 import '../utils/device_display.dart';
 import '../utils/device_guess.dart';
+import '../utils/format_labels.dart';
 import '../utils/sensor_parsers.dart';
 import '../widgets/direction_panel.dart';
 import '../widgets/hot_cold_indicator.dart';
+import '../widgets/info_row.dart';
 import '../widgets/rssi_chart.dart';
 import '../widgets/signal_gauge.dart';
 import '../widgets/sparkline.dart';
@@ -750,8 +752,8 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                     ? '$calibration dBm (cal.)'
                     : (rec.txPower == null ? '—' : '${rec.txPower} dBm'),
               ),
-              Stat('Adv interval', _intervalLabel(rec.medianIntervalMs())),
-              Stat('Stability', _stabilityLabel(rec.rssiStdDev())),
+              Stat('Adv interval', intervalLabel(rec.medianIntervalMs())),
+              Stat('Stability', stabilityLabel(rec.rssiStdDev())),
             ],
           ),
           if (ibeacon != null || eddystone != null) ...[
@@ -759,15 +761,15 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             Text('Beacon', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             if (ibeacon != null) ...[
-              _InfoRow('Type', 'iBeacon'),
-              _InfoRow('UUID', ibeacon.uuid),
-              _InfoRow('Major', '${ibeacon.major}'),
-              _InfoRow('Minor', '${ibeacon.minor}'),
-              _InfoRow('Measured power', '${ibeacon.measuredPower} dBm @ 1 m'),
+              InfoRow('Type', 'iBeacon'),
+              InfoRow('UUID', ibeacon.uuid),
+              InfoRow('Major', '${ibeacon.major}'),
+              InfoRow('Minor', '${ibeacon.minor}'),
+              InfoRow('Measured power', '${ibeacon.measuredPower} dBm @ 1 m'),
             ],
             if (eddystone != null) ...[
-              _InfoRow('Type', eddystoneTypeLabel(eddystone.frameType)),
-              _InfoRow('Payload', eddystone.payload),
+              InfoRow('Type', eddystoneTypeLabel(eddystone.frameType)),
+              InfoRow('Payload', eddystone.payload),
             ],
           ],
           const SizedBox(height: 24),
@@ -786,31 +788,31 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
           const SizedBox(height: 24),
           Text('Identity', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          _InfoRow('Address', rec.id.str),
+          InfoRow('Address', rec.id.str),
           if (rec.localName != null && rec.localName!.isNotEmpty)
-            _InfoRow('Advertised name', rec.localName!),
+            InfoRow('Advertised name', rec.localName!),
           if (rec.manufacturerId != null)
-            _InfoRow(
+            InfoRow(
               'Manufacturer',
               '${manufacturerNameFor(rec.manufacturerId!) ?? "Unknown"} '
                   '(0x${rec.manufacturerId!.toRadixString(16).padLeft(4, '0').toUpperCase()})',
             ),
           if (rec.rawManufacturerBytes.isNotEmpty)
-            _InfoRow(
+            InfoRow(
               'Mfr data',
               rec.rawManufacturerBytes
                   .map((b) => b.toRadixString(16).padLeft(2, '0'))
                   .join(' '),
             ),
-          _InfoRow('First seen', formatTime(rec.firstSeen)),
-          _InfoRow('Last seen', formatTime(rec.lastSeen)),
+          InfoRow('First seen', formatTime(rec.firstSeen)),
+          InfoRow('Last seen', formatTime(rec.lastSeen)),
           if (rec.serviceUuids.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text('Services advertised', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             ...rec.serviceUuids.map((u) {
               final known = serviceNameFor(u.str);
-              return _InfoRow(known ?? 'Service', u.str);
+              return InfoRow(known ?? 'Service', u.str);
             }),
           ],
           const SizedBox(height: 32),
@@ -1071,39 +1073,6 @@ class _FindItPanel extends StatelessWidget {
 }
 
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow(this.label, this.value);
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _IdentityCard extends StatelessWidget {
   const _IdentityCard({required this.identity});
   final GattIdentity identity;
@@ -1237,19 +1206,4 @@ class _SensorCard extends StatelessWidget {
 }
 
 
-String _intervalLabel(int? ms) {
-  if (ms == null) return "—";
-  if (ms < 1000) return "~$ms ms";
-  final s = ms / 1000;
-  return s < 10 ? "~${s.toStringAsFixed(1)} s" : "~${s.round()} s";
-}
 
-String _stabilityLabel(double? sigma) {
-  if (sigma == null) return "—";
-  final label = sigma < 1.5
-      ? "Stable"
-      : sigma < 3.5
-          ? "Moderate"
-          : "Jumpy";
-  return "$label · ±${sigma.toStringAsFixed(1)} dB";
-}
